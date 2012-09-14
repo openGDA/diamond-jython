@@ -5,7 +5,7 @@ Bundle-SymbolicName: uk.ac.diamond.jython;singleton:=true
 Bundle-Version: 2.5.1
 Bundle-Vendor: Diamond Light Source
 Bundle-RequiredExecutionEnvironment: JavaSE-1.6
-Bundle-ClassPath: jython2.5.1/jython.jar,
+Bundle-ClassPath: jython2.5/jython.jar,
  .
 Export-Package: com.ziclix.python.sql,
  com.ziclix.python.sql.connect,
