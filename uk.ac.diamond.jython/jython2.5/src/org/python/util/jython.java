@@ -25,9 +25,9 @@ import org.python.core.PyString;
 import org.python.core.PyStringMap;
 import org.python.core.PySystemState;
 import org.python.core.imp;
-import org.python.core.util.FileUtil;
 import org.python.core.util.RelativeFile;
 import org.python.modules._systemrestart;
+import org.python.modules.posix.PosixModule;
 import org.python.modules.thread.thread;
 
 public class jython {
@@ -98,7 +98,7 @@ public class jython {
                 throw Py.ValueError("jar file missing '__run__.py'");
             }
 
-            PyStringMap locals = new PyStringMap();
+            PyStringMap locals = Py.newStringMap();
 
             // Stripping the stuff before the last File.separator fixes Bug #931129 by
             // keeping illegal characters out of the generated proxy class name
@@ -155,17 +155,18 @@ public class jython {
         }
         Py.getSystemState().setWarnoptions(warnoptions);
 
+        PySystemState systemState = Py.getSystemState();
         // Decide if stdin is interactive
-        if (!opts.fixInteractive && opts.interactive) {
+        if (!opts.fixInteractive || opts.interactive) {
             opts.interactive = ((PyFile)Py.defaultSystemState.stdin).isatty();
             if (!opts.interactive) {
-                PySystemState systemState = Py.getSystemState();
                 systemState.ps1 = systemState.ps2 = Py.EmptyString;
             }
         }
 
         // Now create an interpreter
         InteractiveConsole interp = newInterpreter(opts.interactive);
+        systemState.__setattr__("_jy_interpreter", Py.java2py(interp));
 
         // Print banner and copyright information (or not)
         if (opts.interactive && opts.notice && !opts.runModule) {
@@ -221,15 +222,15 @@ public class jython {
             	}
             } else if (opts.filename.equals("-")) {
                 try {
-                    interp.locals.__setitem__(new PyString("__file__"), new PyString("<stdin>"));
+                    interp.globals.__setitem__(new PyString("__file__"), new PyString("<stdin>"));
                     interp.execfile(System.in, "<stdin>");
                 } catch (Throwable t) {
                     Py.printException(t);
                 }
             } else {
                 try {
-                   interp.locals.__setitem__(new PyString("__file__"),
-                                             new PyString(opts.filename));
+                   interp.globals.__setitem__(new PyString("__file__"),
+                                              new PyString(opts.filename));
 
                    FileInputStream file;
                    try {
@@ -238,10 +239,10 @@ public class jython {
                        throw Py.IOError(e);
                    }
                    try {
-                       if (FileUtil.isatty(file.getFD())) {
+                       if (PosixModule.getPOSIX().isatty(file.getFD())) {
                            opts.interactive = true;
                            interp.interact(null, new PyFile(file));
-                           System.exit(0);
+                           return;
                        } else {
                            interp.execfile(file, opts.filename);
                        }
@@ -254,15 +255,15 @@ public class jython {
                         // Shutdown this instance...
                         shouldRestart = true;
                         shutdownInterpreter();
+                        interp.cleanup();
                         // ..reset the state...
                         Py.setSystemState(new PySystemState());
                         // ...and start again
+                        return;
                     } else {
                         Py.printException(t);
-                        if (!opts.interactive) {
-                            interp.cleanup();
-                            System.exit(-1);
-                        }
+                        interp.cleanup();
+                        System.exit(-1);
                     }
                 }
             }
@@ -290,7 +291,7 @@ public class jython {
                     interp.set("name", Py.newString(opts.moduleName));
                     interp.exec("runpy.run_module(name, run_name='__main__', alter_sys=True)");
                     interp.cleanup();
-                    System.exit(0);
+                    return;
                 } catch (Throwable t) {
                     Py.printException(t);
                     interp.cleanup();
@@ -319,9 +320,6 @@ public class jython {
             }
         }
         interp.cleanup();
-        if (opts.fixInteractive || opts.interactive) {
-            System.exit(0);
-        }
     }
 
     /**
@@ -353,8 +351,9 @@ public class jython {
      * Run any finalizations on the current interpreter in preparation for a SytemRestart.
      */
     public static void shutdownInterpreter() {
-        // Stop all the active threads
+        // Stop all the active threads and signal the SystemRestart
         thread.interruptAllThreads();
+        Py.getSystemState()._systemRestart = true;
         // Close all sockets -- not all of their operations are stopped by
         // Thread.interrupt (in particular pre-nio sockets)
         try {
@@ -431,7 +430,7 @@ class CommandLineOptions {
                 Options.verbose +=3 ;
             } else if (arg.equals("-S")) {
                 Options.importSite = false;
-            } else if (arg.equals("-c")) {
+            } else if (arg.startsWith("-c")) {
                 runCommand = true;
                 if (arg.length() > 2) {
                     command = arg.substring(2);
@@ -448,7 +447,7 @@ class CommandLineOptions {
                 }
                 index++;
                 break;
-            } else if (arg.equals("-W")) {
+            } else if (arg.startsWith("-W")) {
                 warnoptions.add(args[++index]);
             } else if (arg.equals("-C")) {
                 encoding = args[++index];

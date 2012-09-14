@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: PyCursor.java 6784 2009-09-11 06:44:19Z zyasoft $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -35,8 +34,6 @@ import org.python.core.ThreadState;
  * context of a fetch operation.
  *
  * @author brian zimmer
- * @author last revised by $Author: zyasoft $
- * @version $Revision: 6784 $
  */
 public class PyCursor extends PyObject implements ClassDictInit, WarningListener, ContextManager {
 
@@ -246,10 +243,7 @@ public class PyCursor extends PyObject implements ClassDictInit, WarningListener
      * @param dict
      */
     static public void classDictInit(PyObject dict) {
-        PyObject version =
-                Py.newString("$Revision: 6784 $").__getslice__(Py.newInteger(11),
-                                                               Py.newInteger(-2));
-        dict.__setitem__("__version__", version);
+        dict.__setitem__("__version__", Py.newString("7290"));
         dict.__setitem__("fetchmany", new CursorFunc("fetchmany", 0, 0, 1, "fetch specified number of rows"));
         dict.__setitem__("close", new CursorFunc("close", 1, 0, "close the cursor"));
         dict.__setitem__("fetchall", new CursorFunc("fetchall", 2, 0, "fetch all results"));

@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: Procedure.java 5609 2008-11-23 04:18:48Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -25,8 +24,6 @@ import java.util.BitSet;
  * the appropriate parameters.
  *
  * @author brian zimmer
- * @author last modified by $Author: pjenvey $
- * @version $Revision: 5609 $
  */
 public class Procedure extends Object {
 

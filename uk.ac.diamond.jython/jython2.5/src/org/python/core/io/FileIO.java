@@ -9,15 +9,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
-import java.nio.channels.Channel;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
 
 import com.kenai.constantine.platform.Errno;
 import org.jruby.ext.posix.util.Platform;
 import org.python.core.Py;
-import org.python.core.util.FileUtil;
+import org.python.core.PyString;
 import org.python.core.util.RelativeFile;
+import org.python.modules.posix.PosixModule;
 
 /**
  * Raw I/O implementation for OS files.
@@ -51,6 +51,13 @@ public class FileIO extends RawIOBase {
     private boolean emulateAppend;
 
     /**
+     * @see #FileIO(PyString name, String mode)
+     */
+    public FileIO(String name, String mode) {
+        this(Py.newString(name), mode);
+    }
+
+    /**
      * Construct a FileIO instance for the specified file name.
      *
      * The mode can be 'r', 'w' or 'a' for reading (default), writing
@@ -60,12 +67,12 @@ public class FileIO extends RawIOBase {
      * @param name the name of the file
      * @param mode a raw io file mode String
      */
-    public FileIO(String name, String mode) {
+    public FileIO(PyString name, String mode) {
         parseMode(mode);
-        File absPath = new RelativeFile(name);
+        File absPath = new RelativeFile(name.toString());
 
         try {
-            if (appending && !reading) {
+            if (appending && !(reading || plus)) {
                 // Take advantage of FileOutputStream's append mode
                 fromFileOutputStream(absPath);
             } else {
@@ -222,7 +229,8 @@ public class FileIO extends RawIOBase {
             return false;
         }
         try {
-            return FileUtil.isatty(file != null ? file.getFD() : fileOutputStream.getFD());
+            return PosixModule.getPOSIX().isatty(file != null
+                                                 ? file.getFD() : fileOutputStream.getFD());
         } catch (IOException e) {
             return false;
         }
@@ -422,7 +430,7 @@ public class FileIO extends RawIOBase {
     }
 
     @Override
-    public Channel getChannel() {
+    public FileChannel getChannel() {
         return fileChannel;
     }
 }

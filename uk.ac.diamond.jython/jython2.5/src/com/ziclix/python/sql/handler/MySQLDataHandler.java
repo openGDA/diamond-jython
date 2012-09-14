@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: MySQLDataHandler.java 6575 2009-07-24 04:58:46Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -25,8 +24,6 @@ import com.ziclix.python.sql.DataHandler;
  * MySQL specific data handling.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6575 $
  */
 public class MySQLDataHandler extends RowIdHandler {
 

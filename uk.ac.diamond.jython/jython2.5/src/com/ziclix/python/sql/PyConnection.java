@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: PyConnection.java 6784 2009-09-11 06:44:19Z zyasoft $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -11,10 +10,11 @@ package com.ziclix.python.sql;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.WeakHashMap;
 import java.util.Set;
 
 import org.python.core.ClassDictInit;
+import org.python.core.ContextManager;
 import org.python.core.Py;
 import org.python.core.PyBuiltinMethodSet;
 import org.python.core.PyException;
@@ -23,18 +23,15 @@ import org.python.core.PyList;
 import org.python.core.PyObject;
 import org.python.core.PyString;
 import org.python.core.PyUnicode;
+import org.python.core.ThreadState;
+import org.python.util.Generic;
 
 import com.ziclix.python.sql.util.PyArgParser;
-import org.python.core.ContextManager;
-import org.python.core.ThreadState;
-
 
 /**
  * A connection to the database.
  *
  * @author brian zimmer
- * @author last revised by $Author: zyasoft $
- * @version $Revision: 6784 $
  */
 public class PyConnection extends PyObject implements ClassDictInit, ContextManager {
 
@@ -93,9 +90,11 @@ public class PyConnection extends PyObject implements ClassDictInit, ContextMana
      */
     public PyConnection(Connection connection) throws SQLException {
         this.closed = false;
-        this.cursors = new HashSet<PyCursor>();
+        cursors = Generic.newSetFromMap(new WeakHashMap<PyCursor, Boolean>());
+        cursors = Collections.synchronizedSet(cursors);
         this.connection = connection;
-        this.statements = new HashSet<PyStatement>();
+        statements = Generic.newSetFromMap(new WeakHashMap<PyStatement, Boolean>());
+        statements = Collections.synchronizedSet(statements);
         this.supportsTransactions = this.connection.getMetaData().supportsTransactions();
         this.supportsMultipleResultSets =
                 this.connection.getMetaData().supportsMultipleResultSets();
@@ -127,10 +126,7 @@ public class PyConnection extends PyObject implements ClassDictInit, ContextMana
      * @param dict
      */
     static public void classDictInit(PyObject dict) {
-        PyObject version =
-                Py.newString("$Revision: 6784 $").__getslice__(Py.newInteger(11),
-                                                               Py.newInteger(-2));
-        dict.__setitem__("__version__", version);
+        dict.__setitem__("__version__", Py.newString("7290"));
         dict.__setitem__("autocommit", new PyInteger(0));
         dict.__setitem__("close", new ConnectionFunc("close", 0, 0, 0, zxJDBC.getString("close")));
         dict.__setitem__("commit", new ConnectionFunc("commit", 1, 0, 0,

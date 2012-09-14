@@ -19,7 +19,7 @@ import java.util.ListIterator;
 
 import java.lang.reflect.Array;
 
-@ExposedType(name = "list", base = PyObject.class)
+@ExposedType(name = "list", base = PyObject.class, doc = BuiltinDocs.list_doc)
 public class PyList extends PySequenceList implements List {
 
     public static final PyType TYPE = PyType.fromClass(PyList.class);
@@ -147,25 +147,37 @@ public class PyList extends PySequenceList implements List {
             setslicePyList(start, stop, step, (PyList) value);
         } else if (value instanceof PySequence) {
             setsliceIterator(start, stop, step, value.asIterable().iterator());
-        } else if (value != null && !(value instanceof List)) {
-            value = new PyList(value);
-            setsliceIterator(start, stop, step, value.asIterable().iterator());
+        } else if (value instanceof List) {
+                setsliceList(start, stop, step, (List)value);
         } else {
-            List valueList = (List) value.__tojava__(List.class);
+            Object valueList = value.__tojava__(List.class);
             if (valueList != null && valueList != Py.NoConversion) {
-                setsliceList(start, stop, step, valueList);
+                setsliceList(start, stop, step, (List)valueList);
+            } else {
+                value = new PyList(value);
+                setsliceIterator(start, stop, step, value.asIterable().iterator());
             }
         }
     }
 
     final private void setsliceList(int start, int stop, int step, List value) {
-        int n = sliceLength(start, stop, step);
-        if (list instanceof ArrayList) {
-            ((ArrayList) list).ensureCapacity(start + n);
-        }
-        ListIterator src = value.listIterator();
-        for (int j = start; src.hasNext(); j += step) {
-            set(j, src.next());
+        if (step == 1) {
+            list.subList(start, stop).clear();
+            int n = value.size();
+            for (int i=0, j=start; i<n; i++, j++) {
+                list.add(j, Py.java2py(value.get(i)));
+            }
+        } else {
+            int size = list.size();
+            Iterator<Object> iter = value.listIterator();
+            for (int j = start; iter.hasNext(); j += step) {
+                PyObject item = Py.java2py(iter.next());
+                if (j >= size) {
+                    list.add(item);
+                } else {
+                    list.set(j, item);
+                }
+            }
         }
     }
 
@@ -293,7 +305,7 @@ public class PyList extends PySequenceList implements List {
         for (int i = 1; i < count; i++) {
             list.addAll(oldList);
         }
-        gListAllocatedStatus = __len__(); // now omit?
+        gListAllocatedStatus = list.size(); // now omit?
         return this;
     }
 
@@ -473,7 +485,7 @@ public class PyList extends PySequenceList implements List {
     @ExposedMethod(doc = BuiltinDocs.list_append_doc)
     final synchronized void list_append(PyObject o) {
         pyadd(o);
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     /**
@@ -576,7 +588,7 @@ public class PyList extends PySequenceList implements List {
             index = size();
         }
         pyadd(index, o);
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     /**
@@ -594,7 +606,7 @@ public class PyList extends PySequenceList implements List {
     @ExposedMethod(doc = BuiltinDocs.list_remove_doc)
     final synchronized void list_remove(PyObject o) {
         del(_index(o, "list.remove(x): x not in list", 0, size()));
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     /**
@@ -609,7 +621,7 @@ public class PyList extends PySequenceList implements List {
     @ExposedMethod(doc = BuiltinDocs.list_reverse_doc)
     final synchronized void list_reverse() {
         Collections.reverse(list);
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     /**
@@ -665,7 +677,7 @@ public class PyList extends PySequenceList implements List {
                 list.add(item);
             }
         }
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     @Override
@@ -746,7 +758,7 @@ public class PyList extends PySequenceList implements List {
         if (reverse) {
             Collections.reverse(list); // maintain stability of sort by reversing first
         }
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     private static class PyObjectDefaultComparator implements Comparator<PyObject> {
@@ -790,7 +802,7 @@ public class PyList extends PySequenceList implements List {
         if (reverse) {
             Collections.reverse(list);
         }
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     private static class PyObjectComparator implements Comparator<PyObject> {
@@ -892,7 +904,7 @@ public class PyList extends PySequenceList implements List {
         for (KV kv : decorated) {
             list.add(kv.value);
         }
-        gListAllocatedStatus = __len__();
+        gListAllocatedStatus = list.size();
     }
 
     public int hashCode() {
@@ -978,8 +990,7 @@ public class PyList extends PySequenceList implements List {
 
     @Override
     public synchronized PyObject[] getArray() {
-        PyObject a[] = null;
-        return list.toArray(a);
+        return list.toArray(Py.EmptyObjects);
     }
 
     @Override

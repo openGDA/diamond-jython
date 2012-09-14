@@ -13,12 +13,16 @@ import org.python.expose.MethodType;
 /**
  * A builtin python string.
  */
-@ExposedType(name = "str")
+@ExposedType(name = "str", doc = BuiltinDocs.str_doc)
 public class PyString extends PyBaseString
 {
     public static final PyType TYPE = PyType.fromClass(PyString.class);
-    protected String string;
+    protected String string; // cannot make final because of Python intern support
     protected transient boolean interned=false;
+
+    public String getString() {
+        return string;
+    }
 
     // for PyJavaClass.init()
     public PyString() {
@@ -57,7 +61,7 @@ public class PyString extends PyBaseString
     }
 
     @ExposedNew
-    final static PyObject str_new(PyNewWrapper new_, boolean init, PyType subtype,
+    static PyObject str_new(PyNewWrapper new_, boolean init, PyType subtype,
             PyObject[] args, String[] keywords) {
         ArgParser ap = new ArgParser("str", args, keywords, new String[] { "object" }, 0);
         PyObject S = ap.getPyObject(0, null);
@@ -75,18 +79,19 @@ public class PyString extends PyBaseString
     }
 
     public int[] toCodePoints() {
-        int n = string.length();
+        int n = getString().length();
         int[] codePoints = new int[n];
         for (int i = 0; i < n; i++) {
-            codePoints[i] = string.charAt(i);
+            codePoints[i] = getString().charAt(i);
         }
         return codePoints;
     }
     
     public String substring(int start, int end) {
-        return string.substring(start, end);
+        return getString().substring(start, end);
     }
     
+    @Override
     public PyString __str__() {
         return str___str__();
     }
@@ -96,43 +101,47 @@ public class PyString extends PyBaseString
         if (getClass() == PyString.class) {
             return this;
         }
-        return new PyString(string);
+        return new PyString(getString());
     }
 
+    @Override
     public PyUnicode __unicode__() {
         return new PyUnicode(this);
     }
 
+    @Override
     public int __len__() {
         return str___len__();
     }
 
     @ExposedMethod(doc = BuiltinDocs.str___len___doc)
     final int str___len__() {
-        return string.length();
+        return getString().length();
     }
 
+    @Override
     public String toString() {
-        return string;
+        return getString();
     }
 
     public String internedString() {
         if (interned)
-            return string;
+            return getString();
         else {
-            string = string.intern();
+            string = getString().intern();
             interned = true;
-            return string;
+            return getString();
         }
     }
 
+    @Override
     public PyString __repr__() {
         return str___repr__();
     }
 
     @ExposedMethod(doc = BuiltinDocs.str___repr___doc)
     final PyString str___repr__() {
-        return new PyString(encode_UnicodeEscape(string, true));
+        return new PyString(encode_UnicodeEscape(getString(), true));
     }
 
     private static char[] hexdigit = "0123456789abcdef".toCharArray();
@@ -154,7 +163,7 @@ public class PyString extends PyBaseString
         for (int i = 0; size-- > 0; ) {
             int ch = str.charAt(i++);
             /* Escape quotes */
-            if (use_quotes && (ch == quote || ch == '\\')) {
+            if ((use_quotes && ch == quote) || ch == '\\') {
                 v.append('\\');
                 v.append((char) ch);
                 continue;
@@ -475,6 +484,7 @@ public class PyString extends PyBaseString
         return seq___getslice__(start, stop, step);
     }
 
+    @Override
     public int __cmp__(PyObject other) {
         return str___cmp__(other);
     }
@@ -484,10 +494,11 @@ public class PyString extends PyBaseString
         if (!(other instanceof PyString))
             return -2;
 
-        int c = string.compareTo(((PyString)other).string);
+        int c = getString().compareTo(((PyString) other).getString());
         return c < 0 ? -1 : c > 0 ? 1 : 0;
     }
 
+    @Override
     public PyObject __eq__(PyObject other) {
         return str___eq__(other);
     }
@@ -497,9 +508,10 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.equals(s) ? Py.True : Py.False;
+        return getString().equals(s) ? Py.True : Py.False;
     }
 
+    @Override
     public PyObject __ne__(PyObject other) {
         return str___ne__(other);
     }
@@ -509,9 +521,10 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.equals(s) ? Py.False : Py.True;
+        return getString().equals(s) ? Py.False : Py.True;
     }
     
+    @Override
     public PyObject __lt__(PyObject other) {
         return str___lt__(other);
     }
@@ -521,9 +534,10 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.compareTo(s) < 0 ? Py.True : Py.False;
+        return getString().compareTo(s) < 0 ? Py.True : Py.False;
     }
 
+    @Override
     public PyObject __le__(PyObject other) {
         return str___le__(other);
     }
@@ -533,9 +547,10 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.compareTo(s) <= 0 ? Py.True : Py.False;
+        return getString().compareTo(s) <= 0 ? Py.True : Py.False;
     }
 
+    @Override
     public PyObject __gt__(PyObject other) {
         return str___gt__(other);
     }
@@ -545,9 +560,10 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.compareTo(s) > 0 ? Py.True : Py.False;
+        return getString().compareTo(s) > 0 ? Py.True : Py.False;
     }
 
+    @Override
     public PyObject __ge__(PyObject other) {
         return str___ge__(other);
     }
@@ -557,7 +573,7 @@ public class PyString extends PyBaseString
         String s = coerce(other);
         if (s == null)
             return null;
-        return string.compareTo(s) >= 0 ? Py.True : Py.False;
+        return getString().compareTo(s) >= 0 ? Py.True : Py.False;
     }
 
     private static String coerce(PyObject o) {
@@ -566,13 +582,14 @@ public class PyString extends PyBaseString
         return null;
     }
 
+    @Override
     public int hashCode() {
         return str___hash__();
     }
 
     @ExposedMethod(doc = BuiltinDocs.str___hash___doc)
     final int str___hash__() {
-        return string.hashCode();
+        return getString().hashCode();
     }
 
     /**
@@ -581,23 +598,24 @@ public class PyString extends PyBaseString
      *         corresponding char.
      */
     public byte[] toBytes() {
-        return StringUtil.toBytes(string);
+        return StringUtil.toBytes(getString());
     }
 
+    @Override
     public Object __tojava__(Class<?> c) {
         if (c.isAssignableFrom(String.class)) {
-            return string;
+            return getString();
         }
 
         if (c == Character.TYPE || c == Character.class)
-            if (string.length() == 1)
-                return new Character(string.charAt(0));
+            if (getString().length() == 1)
+                return new Character(getString().charAt(0));
 
         if (c.isArray()) {
             if (c.getComponentType() == Byte.TYPE)
                 return toBytes();
             if (c.getComponentType() == Character.TYPE)
-                return string.toCharArray();
+                return getString().toCharArray();
         }
 
         if (c.isInstance(this))
@@ -607,7 +625,7 @@ public class PyString extends PyBaseString
     }
 
     protected PyObject pyget(int i) {
-        return Py.newString(string.charAt(i));
+        return Py.newString(getString().charAt(i));
     }
 
     protected PyObject getslice(int start, int stop, int step) {
@@ -620,7 +638,7 @@ public class PyString extends PyBaseString
             char new_chars[] = new char[n];
             int j = 0;
             for (int i=start; j<n; i+=step)
-                new_chars[j++] = string.charAt(i);
+                new_chars[j++] = getString().charAt(i);
 
             return createInstance(new String(new_chars), true);
         }
@@ -635,6 +653,7 @@ public class PyString extends PyBaseString
         return new PyString(str);
     } 
     
+    @Override
     public boolean __contains__(PyObject o) {
         return str___contains__(o);
     }
@@ -644,14 +663,14 @@ public class PyString extends PyBaseString
         if (!(o instanceof PyString))
             throw Py.TypeError("'in <string>' requires string as left operand");
         PyString other = (PyString) o;
-        return string.indexOf(other.string) >= 0;
+        return getString().indexOf(other.getString()) >= 0;
     }
 
     protected PyObject repeat(int count) {
         if(count < 0) {
             count = 0;
         }
-        int s = string.length();
+        int s = getString().length();
         if((long)s * count > Integer.MAX_VALUE) {
             // Since Strings store their data in an array, we can't make one
             // longer than Integer.MAX_VALUE. Without this check we get
@@ -661,7 +680,7 @@ public class PyString extends PyBaseString
         }
         char new_chars[] = new char[s * count];
         for(int i = 0; i < count; i++) {
-            string.getChars(0, s, new_chars, i * s);
+            getString().getChars(0, s, new_chars, i * s);
         }
         return createInstance(new String(new_chars));
     }
@@ -692,6 +711,7 @@ public class PyString extends PyBaseString
         return repeat(o.asIndex(Py.OverflowError));
     }
 
+    @Override
     public PyObject __add__(PyObject other) {
         return str___add__(other);
     }
@@ -703,30 +723,33 @@ public class PyString extends PyBaseString
         }
         if (other instanceof PyString) {
             PyString otherStr = (PyString)other;
-            return new PyString(string.concat(otherStr.string));
+            return new PyString(getString().concat(otherStr.getString()));
         }
         return null;
     }
 
     @ExposedMethod(doc = BuiltinDocs.str___getnewargs___doc)
     final PyTuple str___getnewargs__() {
-        return new PyTuple(new PyString(this.string));
+        return new PyTuple(new PyString(this.getString()));
     }
 
+    @Override
     public PyTuple __getnewargs__() {
         return str___getnewargs__();
     }
 
+    @Override
     public PyObject __mod__(PyObject other) {
         return str___mod__(other);
     }
     
     @ExposedMethod(doc = BuiltinDocs.str___mod___doc)
     public PyObject str___mod__(PyObject other){
-        StringFormatter fmt = new StringFormatter(string, false);
+        StringFormatter fmt = new StringFormatter(getString(), false);
         return fmt.format(other);
     }
 
+    @Override
     public PyObject __int__() {
         try
         {
@@ -739,27 +762,33 @@ public class PyString extends PyBaseString
         }
     }
 
+    @Override
     public PyObject __long__() {
         return atol(10);
     }
 
+    @Override
     public PyFloat __float__() {
         return new PyFloat(atof());
     }
 
+    @Override
     public PyObject __pos__() {
       throw Py.TypeError("bad operand type for unary +");
     }
 
+    @Override
     public PyObject __neg__() {
       throw Py.TypeError("bad operand type for unary -");
     }
 
+    @Override
     public PyObject __invert__() {
       throw Py.TypeError("bad operand type for unary ~");
     }
 
     @SuppressWarnings("fallthrough")
+    @Override
     public PyComplex __complex__() {
         boolean got_re = false;
         boolean got_im = false;
@@ -767,8 +796,8 @@ public class PyString extends PyBaseString
         boolean sw_error = false;
 
         int s = 0;
-        int n = string.length();
-        while (s < n && Character.isSpaceChar(string.charAt(s)))
+        int n = getString().length();
+        while (s < n && Character.isSpaceChar(getString().charAt(s)))
             s++;
 
         if (s == n) {
@@ -781,7 +810,7 @@ public class PyString extends PyBaseString
 
         int sign = 1;
         do {
-            char c = string.charAt(s);
+            char c = getString().charAt(s);
             switch (c) {
             case '-':
                 sign = -1;
@@ -793,7 +822,7 @@ public class PyString extends PyBaseString
                 }
                 //  a character is guaranteed, but it better be a digit
                 //  or J or j
-                c = string.charAt(++s);  //  eat the sign character
+                c = getString().charAt(++s);  //  eat the sign character
                                          //  and check the next
                 if  (!Character.isDigit(c) && c!='J' && c!='j')
                     sw_error = true;
@@ -817,7 +846,7 @@ public class PyString extends PyBaseString
                 break;
 
             case ' ':
-                while (s < n && Character.isSpaceChar(string.charAt(s)))
+                while (s < n && Character.isSpaceChar(getString().charAt(s)))
                     s++;
                 if (s != n)
                     sw_error = true;
@@ -829,15 +858,15 @@ public class PyString extends PyBaseString
                     sw_error = true;
                     break;
                 }
-                int end = endDouble(string, s);
-                z = Double.valueOf(string.substring(s, end)).doubleValue();
+                int end = endDouble(getString(),s);
+                z = Double.valueOf(getString().substring(s, end)).doubleValue();
                 if (z == Double.POSITIVE_INFINITY) {
-                	throw Py.ValueError(String.format("float() out of range: %.150s", string));
+                    throw Py.ValueError(String.format("float() out of range: %.150s", getString()));
                 }
 
                 s=end;
                 if (s < n) {
-                    c = string.charAt(s);
+                    c = getString().charAt(s);
                     if  (c == 'J' || c == 'j') {
                         break;
                     }
@@ -861,7 +890,7 @@ public class PyString extends PyBaseString
 
         if (sw_error) {
             throw Py.ValueError("malformed string for complex() " +
-                                string.substring(s));
+                                getString().substring(s));
         }
 
         return new PyComplex(x,y);
@@ -895,7 +924,7 @@ public class PyString extends PyBaseString
     
     @ExposedMethod(doc = BuiltinDocs.str_lower_doc)
     final String str_lower() {
-        return string.toLowerCase();
+        return getString().toLowerCase();
     }
 
     public String upper() {
@@ -904,7 +933,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_upper_doc)
     final String str_upper() {
-        return string.toUpperCase();
+        return getString().toUpperCase();
     }
 
     public String title() {
@@ -913,7 +942,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_title_doc)
     final String str_title() {
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n = chars.length;
 
         boolean previous_is_cased = false;
@@ -940,7 +969,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_swapcase_doc)
     final String str_swapcase() {
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
         for (int i=0; i<n; i++) {
             char c = chars[i];
@@ -964,7 +993,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(defaults = "null", doc = BuiltinDocs.str_strip_doc)
     final String str_strip(String sep) {
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
         int start=0;
         if (sep == null)
@@ -984,7 +1013,7 @@ public class PyString extends PyBaseString
 
         if (end >= start) {
             return (end < n-1 || start > 0)
-                ? string.substring(start, end+1) : string;
+                ? getString().substring(start, end+1) : getString();
         } else {
             return "";
         }
@@ -1000,7 +1029,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(defaults = "null", doc = BuiltinDocs.str_lstrip_doc)
     final String str_lstrip(String sep) {
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
         int start=0;
         if (sep == null)
@@ -1010,7 +1039,7 @@ public class PyString extends PyBaseString
             while (start < n && sep.indexOf(chars[start]) >= 0)
                 start++;
 
-        return (start > 0) ? string.substring(start, n) : string;
+        return (start > 0) ? getString().substring(start, n) : getString();
     }
 
     public String rstrip(String sep) {
@@ -1019,7 +1048,7 @@ public class PyString extends PyBaseString
     
     @ExposedMethod(defaults = "null", doc = BuiltinDocs.str_rstrip_doc)
     final String str_rstrip(String sep) {
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
         int end=n-1;
         if (sep == null)
@@ -1029,7 +1058,7 @@ public class PyString extends PyBaseString
             while (end >= 0 && sep.indexOf(chars[end]) >= 0)
                 end--;
 
-        return (end < n-1) ? string.substring(0, end+1) : string;
+        return (end < n-1) ? getString().substring(0, end+1) : getString();
     }
 
 
@@ -1056,7 +1085,7 @@ public class PyString extends PyBaseString
 
         PyList list = new PyList();
 
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
 
         if (maxsplit < 0)
@@ -1108,7 +1137,7 @@ public class PyString extends PyBaseString
         }
 
         PyList list = new PyList();
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
 
         if (maxsplit < 0) {
             maxsplit = chars.length;
@@ -1165,7 +1194,7 @@ public class PyString extends PyBaseString
         if (sepObj instanceof PyUnicode) {
             return unicodePartition(sepObj);
         } else if (sepObj instanceof PyString) {
-            sep = ((PyString)sepObj).string;
+            sep = ((PyString) sepObj).getString();
         } else {
             throw Py.TypeError("expected a character buffer object");
         }
@@ -1174,10 +1203,10 @@ public class PyString extends PyBaseString
             throw Py.ValueError("empty separator");
         }
 
-        int index = string.indexOf(sep);
+        int index = getString().indexOf(sep);
         if (index != -1) {
             return new PyTuple(fromSubstring(0, index), sepObj,
-                               fromSubstring(index + sep.length(), string.length()));
+                               fromSubstring(index + sep.length(), getString().length()));
         } else {
             return new PyTuple(this, Py.EmptyString, Py.EmptyString);
         }
@@ -1185,7 +1214,7 @@ public class PyString extends PyBaseString
 
     final PyTuple unicodePartition(PyObject sepObj) {
         PyUnicode strObj = __unicode__();
-        String str = strObj.string;
+        String str = strObj.getString();
 
         // Will throw a TypeError if not a basestring
         String sep = sepObj.asString();
@@ -1214,9 +1243,9 @@ public class PyString extends PyBaseString
         String sep;
 
         if (sepObj instanceof PyUnicode) {
-            return unicodePartition(sepObj);
+            return unicodeRpartition(sepObj);
         } else if (sepObj instanceof PyString) {
-            sep = ((PyString)sepObj).string;
+            sep = ((PyString) sepObj).getString();
         } else {
             throw Py.TypeError("expected a character buffer object");
         }
@@ -1225,10 +1254,10 @@ public class PyString extends PyBaseString
             throw Py.ValueError("empty separator");
         }
 
-        int index = string.lastIndexOf(sep);
+        int index = getString().lastIndexOf(sep);
         if (index != -1) {
             return new PyTuple(fromSubstring(0, index), sepObj,
-                               fromSubstring(index + sep.length(), string.length()));
+                               fromSubstring(index + sep.length(), getString().length()));
         } else {
             return new PyTuple(Py.EmptyString, Py.EmptyString, this);
         }
@@ -1236,7 +1265,7 @@ public class PyString extends PyBaseString
 
     final PyTuple unicodeRpartition(PyObject sepObj) {
         PyUnicode strObj = __unicode__();
-        String str = strObj.string;
+        String str = strObj.getString();
 
         // Will throw a TypeError if not a basestring
         String sep = sepObj.asString();
@@ -1259,7 +1288,7 @@ public class PyString extends PyBaseString
     private PyList splitfields(String sep, int maxsplit) {
         PyList list = new PyList();
 
-        int length = string.length();
+        int length = getString().length();
         if (maxsplit < 0)
             maxsplit = length + 1;
 
@@ -1268,12 +1297,12 @@ public class PyString extends PyBaseString
         int sepLength = sep.length();
         int index;
         if((sep.length() == 0) && (maxsplit != 0)) {
-            index = string.indexOf(sep, lastbreak);
+            index = getString().indexOf(sep, lastbreak);
             list.append(fromSubstring(lastbreak, index));
             splits++;
         }
         while (splits < maxsplit) {
-            index = string.indexOf(sep, lastbreak);
+            index = getString().indexOf(sep, lastbreak);
             if (index == -1)
                 break;
             if(sep.length() == 0)
@@ -1291,7 +1320,7 @@ public class PyString extends PyBaseString
     private PyList rsplitfields(String sep, int maxsplit) {
         PyList list = new PyList();
 
-        int length = string.length();
+        int length = getString().length();
         if (maxsplit < 0) {
             maxsplit = length + 1;
         }
@@ -1302,7 +1331,7 @@ public class PyString extends PyBaseString
         int sepLength = sep.length();
 
         while (index > 0 && splits < maxsplit) {
-            int i = string.lastIndexOf(sep, index - sepLength);
+            int i = getString().lastIndexOf(sep, index - sepLength);
             if (i == index) {
                 i -= sepLength;
             }
@@ -1331,7 +1360,7 @@ public class PyString extends PyBaseString
     final PyList str_splitlines(boolean keepends) {
         PyList list = new PyList();
 
-        char[] chars = string.toCharArray();
+        char[] chars = getString().toCharArray();
         int n=chars.length;
 
         int j = 0;
@@ -1361,7 +1390,7 @@ public class PyString extends PyBaseString
     }
 
     protected PyString fromSubstring(int begin, int end) {
-        return createInstance(string.substring(begin, end), true);
+        return createInstance(getString().substring(begin, end), true);
     }
 
     public int index(String sub) {
@@ -1421,14 +1450,14 @@ public class PyString extends PyBaseString
         int[] indices = translateIndices(start, end);
         int n = sub.length();
         if(n == 0) {
-            if (start > string.length()) {
+            if (start > getString().length()) {
                 return 0;
             }
             return indices[1] - indices[0] + 1;
         }
         int count = 0;
         while(true){
-            int index = string.indexOf(sub, indices[0]);
+            int index = getString().indexOf(sub, indices[0]);
             indices[0] = index + n;
             if(indices[0] > indices[1] || index == -1) {
                 break;
@@ -1453,7 +1482,7 @@ public class PyString extends PyBaseString
     @ExposedMethod(defaults = {"0", "null"}, doc = BuiltinDocs.str_find_doc)
     final int str_find(String sub, int start, PyObject end) {
         int[] indices = translateIndices(start, end);
-        int index = string.indexOf(sub, indices[0]);
+        int index = getString().indexOf(sub, indices[0]);
         if (index < start || index > indices[1]) {
             return -1;
         }
@@ -1475,7 +1504,7 @@ public class PyString extends PyBaseString
     @ExposedMethod(defaults = {"0", "null"}, doc = BuiltinDocs.str_rfind_doc)
     final int str_rfind(String sub, int start, PyObject end) {
         int[] indices = translateIndices(start, end);
-        int index = string.lastIndexOf(sub, indices[1] - sub.length());
+        int index = getString().lastIndexOf(sub, indices[1] - sub.length());
         if (index < start) {
             return -1;
         }
@@ -1484,20 +1513,20 @@ public class PyString extends PyBaseString
 
     public double atof() {
         StringBuilder s = null;
-        int n = string.length();
+        int n = getString().length();
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
             if (ch == '\u0000') {
                 throw Py.ValueError("null byte in argument for float()");
             }
             if (Character.isDigit(ch)) {
                 if (s == null)
-                    s = new StringBuilder(string);
+                    s = new StringBuilder(getString());
                 int val = Character.digit(ch, 10);
                 s.setCharAt(i, Character.forDigit(val, 10));
             }
         }
-        String sval = string;
+        String sval = getString();
         if (s != null)
             sval = s.toString();
         try {
@@ -1513,7 +1542,7 @@ public class PyString extends PyBaseString
             return Double.valueOf(sval).doubleValue();
         }
         catch (NumberFormatException exc) {
-            throw Py.ValueError("invalid literal for __float__: "+string);
+            throw Py.ValueError("invalid literal for __float__: "+getString());
         }
     }
 
@@ -1527,26 +1556,26 @@ public class PyString extends PyBaseString
         }
 
         int b = 0;
-        int e = string.length();
+        int e = getString().length();
 
-        while (b < e && Character.isWhitespace(string.charAt(b)))
+        while (b < e && Character.isWhitespace(getString().charAt(b)))
             b++;
 
-        while (e > b && Character.isWhitespace(string.charAt(e-1)))
+        while (e > b && Character.isWhitespace(getString().charAt(e-1)))
             e--;
 
         char sign = 0;
         if (b < e) {
-            sign = string.charAt(b);
+            sign = getString().charAt(b);
             if (sign == '-' || sign == '+') {
                 b++;
-                while (b < e && Character.isWhitespace(string.charAt(b))) b++;
+                while (b < e && Character.isWhitespace(getString().charAt(b))) b++;
             }
 
             if (base == 0 || base == 16) {
-                if (string.charAt(b) == '0') {
+                if (getString().charAt(b) == '0') {
                     if (b < e-1 &&
-                           Character.toUpperCase(string.charAt(b+1)) == 'X') {
+                           Character.toUpperCase(getString().charAt(b+1)) == 'X') {
                         base = 16;
                         b += 2;
                     } else {
@@ -1560,9 +1589,9 @@ public class PyString extends PyBaseString
         if (base == 0)
             base = 10;
 
-        String s = string;
-        if (b > 0 || e < string.length())
-            s = string.substring(b, e);
+        String s = getString();
+        if (b > 0 || e < getString().length())
+            s = getString().substring(b, e);
 
         try {
             BigInteger bi;
@@ -1570,14 +1599,14 @@ public class PyString extends PyBaseString
                 bi = new BigInteger("-" + s, base);
             } else
                 bi = new BigInteger(s, base);
-            if (bi.compareTo(PyInteger.maxInt) > 0 || bi.compareTo(PyInteger.minInt) < 0) {
+            if (bi.compareTo(PyInteger.MAX_INT) > 0 || bi.compareTo(PyInteger.MIN_INT) < 0) {
                 throw Py.OverflowError("long int too large to convert to int");
             }
             return bi.intValue();
         } catch (NumberFormatException exc) {
-            throw Py.ValueError("invalid literal for int() with base " + base + ": " + string);
+            throw Py.ValueError("invalid literal for int() with base " + base + ": " + getString());
         } catch (StringIndexOutOfBoundsException exc) {
-            throw Py.ValueError("invalid literal for int() with base " + base + ": " + string);
+            throw Py.ValueError("invalid literal for int() with base " + base + ": " + getString());
         }
     }
 
@@ -1586,7 +1615,7 @@ public class PyString extends PyBaseString
     }
 
     public PyLong atol(int base) {
-        String str = string;
+        String str = getString();
         int b = 0;
         int e = str.length();
 
@@ -1599,7 +1628,7 @@ public class PyString extends PyBaseString
 
         char sign = 0;
         if (b < e) {
-            sign = string.charAt(b);
+            sign = getString().charAt(b);
             if (sign == '-' || sign == '+') {
                 b++;
                 while (b < e && Character.isWhitespace(str.charAt(b))) b++;
@@ -1607,9 +1636,9 @@ public class PyString extends PyBaseString
 
 
             if (base == 0 || base == 16) {
-                if (string.charAt(b) == '0') {
+                if (getString().charAt(b) == '0') {
                     if (b < e-1 &&
-                           Character.toUpperCase(string.charAt(b+1)) == 'X') {
+                           Character.toUpperCase(getString().charAt(b+1)) == 'X') {
                         base = 16;
                         b += 2;
                     } else {
@@ -1649,10 +1678,10 @@ public class PyString extends PyBaseString
                         0,0, "invalid decimal Unicode string");
             }
             else {
-            throw Py.ValueError("invalid literal for long() with base " + base + ": " + string);
+            throw Py.ValueError("invalid literal for long() with base " + base + ": " + getString());
             }
         } catch (StringIndexOutOfBoundsException exc) {
-            throw Py.ValueError("invalid literal for long() with base " + base + ": " + string);
+            throw Py.ValueError("invalid literal for long() with base " + base + ": " + getString());
         }
     }
 
@@ -1682,10 +1711,10 @@ public class PyString extends PyBaseString
     @ExposedMethod(defaults="null", doc = BuiltinDocs.str_ljust_doc)
     final String str_ljust(int width, String fillchar) {
         char pad = parse_fillchar("ljust", fillchar);
-        int n = width-string.length();
+        int n = width-getString().length();
         if (n <= 0)
-            return string;
-        return string+padding(n, pad);
+            return getString();
+        return getString()+padding(n, pad);
     }
 
     public String rjust(int width) {
@@ -1695,10 +1724,10 @@ public class PyString extends PyBaseString
     @ExposedMethod(defaults="null", doc = BuiltinDocs.str_rjust_doc)
     final String str_rjust(int width, String fillchar) {
         char pad = parse_fillchar("rjust", fillchar);
-        int n = width-string.length();
+        int n = width-getString().length();
         if (n <= 0)
-            return string;
-        return padding(n, pad)+string;
+            return getString();
+        return padding(n, pad)+getString();
     }
 
     public String center(int width) {
@@ -1708,14 +1737,14 @@ public class PyString extends PyBaseString
     @ExposedMethod(defaults="null", doc = BuiltinDocs.str_center_doc)
     final String str_center(int width, String fillchar) {
         char pad = parse_fillchar("center", fillchar);
-        int n = width-string.length();
+        int n = width-getString().length();
         if (n <= 0)
-            return string;
+            return getString();
         int half = n/2;
         if (n%2 > 0 &&  width%2 > 0)
             half += 1;
         
-        return padding(half, pad)+string+padding(n-half, pad);
+        return padding(half, pad)+getString()+padding(n-half, pad);
     }
 
     public String zfill(int width) {
@@ -1724,7 +1753,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_zfill_doc)
     final String str_zfill(int width) {
-        String s = string;
+        String s = getString();
         int n = s.length();
         if (n >= width)
             return s;
@@ -1758,7 +1787,7 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(defaults = "8", doc = BuiltinDocs.str_expandtabs_doc)
     final String str_expandtabs(int tabsize) {
-        String s = string;
+        String s = getString();
         StringBuilder buf = new StringBuilder((int)(s.length()*1.5));
         char[] chars = s.toCharArray();
         int n = chars.length;
@@ -1789,10 +1818,10 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_capitalize_doc)
     final String str_capitalize() {
-        if (string.length() == 0)
-            return string;
-        String first = string.substring(0,1).toUpperCase();
-        return first.concat(string.substring(1).toLowerCase());
+        if (getString().length() == 0)
+            return getString();
+        String first = getString().substring(0,1).toUpperCase();
+        return first.concat(getString().substring(1).toLowerCase());
     }
 
     @ExposedMethod(defaults = "null", doc = BuiltinDocs.str_replace_doc)
@@ -1805,25 +1834,25 @@ public class PyString extends PyBaseString
     }
     
     protected PyString replace(PyString oldPiece, PyString newPiece, int maxsplit) {
-        int len = string.length();
-        int old_len = oldPiece.string.length();
+        int len = getString().length();
+        int old_len = oldPiece.getString().length();
         if (len == 0) {
             if (maxsplit == -1 && old_len == 0) {
-                return createInstance(newPiece.string, true);
+                return createInstance(newPiece.getString(), true);
             }
-            return createInstance(string, true);
+            return createInstance(getString(), true);
         }
         
-        if (old_len == 0 && newPiece.string.length() != 0 && maxsplit !=0) {
+        if (old_len == 0 && newPiece.getString().length() != 0 && maxsplit !=0) {
             // old="" and new != "", interleave new piece with each char in original, taking in effect maxsplit
             StringBuilder buffer = new StringBuilder();
             int i = 0;
-            buffer.append(newPiece.string);
+            buffer.append(newPiece.getString());
             for (; i < len && (i < maxsplit-1 || maxsplit == -1); i++) {
-                buffer.append(string.charAt(i));
-                buffer.append(newPiece.string);
+                buffer.append(getString().charAt(i));
+                buffer.append(newPiece.getString());
             }
-            buffer.append(string.substring(i));
+            buffer.append(getString().substring(i));
             return createInstance(buffer.toString(), true);
         }
        
@@ -1835,7 +1864,7 @@ public class PyString extends PyBaseString
             }
         }
         
-        return newPiece.join(splitfields(oldPiece.string, maxsplit));
+        return newPiece.join(splitfields(oldPiece.getString(), maxsplit));
     }
 
     public PyString join(PyObject seq) {
@@ -1864,7 +1893,7 @@ public class PyString extends PyBaseString
         // join if appropriate
         int i = 0;
         long size = 0;
-        int sepLen = string.length();
+        int sepLen = getString().length();
         for (; i < seqLen; i++) {
             item = seq.pyget(i);
             if (!(item instanceof PyString)) {
@@ -1880,7 +1909,7 @@ public class PyString extends PyBaseString
             if (i != 0) {
                 size += sepLen;
             }
-            size += ((PyString)item).string.length();
+            size += ((PyString) item).getString().length();
             if (size > Integer.MAX_VALUE) {
                 throw Py.OverflowError("join() result is too long for a Python string");
             }
@@ -1891,9 +1920,9 @@ public class PyString extends PyBaseString
         for (i = 0; i < seqLen; i++) {
             item = seq.pyget(i);
             if (i != 0) {
-                buf.append(string);
+                buf.append(getString());
             }
-            buf.append(((PyString)item).string);
+            buf.append(((PyString) item).getString());
         }
         return new PyString(buf.toString());
     }
@@ -1923,9 +1952,9 @@ public class PyString extends PyBaseString
         String sep = null;
         if (seqLen > 1) {
             if (this instanceof PyUnicode) {
-                sep = string;
+                sep = getString();
             } else {
-                sep = ((PyUnicode)decode()).string;
+                sep = ((PyUnicode) decode()).getString();
                 // In case decode()'s codec mutated seq
                 seqLen = seq.__len__();
             }
@@ -1933,7 +1962,7 @@ public class PyString extends PyBaseString
 
         // At least two items to join, or one that isn't exact Unicode
         long size = 0;
-        int sepLen = string.length();
+        int sepLen = getString().length();
         StringBuilder buf = new StringBuilder();
         String itemString;
         for (int i = 0; i < seqLen; i++) {
@@ -1949,7 +1978,7 @@ public class PyString extends PyBaseString
                 // In case decode()'s codec mutated seq
                 seqLen = seq.__len__();
             }
-            itemString = ((PyUnicode)item).string;
+            itemString = ((PyUnicode) item).getString();
 
             if (i != 0) {
                 size += sepLen;
@@ -1981,28 +2010,28 @@ public class PyString extends PyBaseString
         int[] indices = translateIndices(start, end);
         
         if (prefix instanceof PyString) {
-        	String strPrefix = ((PyString)prefix).string;
+            String strPrefix = ((PyString) prefix).getString();
             if (indices[1] - indices[0] < strPrefix.length())
                 return false;
             
-        	return string.startsWith(strPrefix, indices[0]);
+            return getString().startsWith(strPrefix, indices[0]);
         } else if (prefix instanceof PyTuple) {
-        	PyObject[] prefixes = ((PyTuple)prefix).getArray();
-        	
-        	for (int i = 0 ; i < prefixes.length ; i++) {
-        		if (!(prefixes[i] instanceof PyString))
-        			throw Py.TypeError("expected a character buffer object");
+            PyObject[] prefixes = ((PyTuple)prefix).getArray();
+            
+            for (int i = 0 ; i < prefixes.length ; i++) {
+                if (!(prefixes[i] instanceof PyString))
+                    throw Py.TypeError("expected a character buffer object");
 
-        		String strPrefix = ((PyString)prefixes[i]).string;
+                String strPrefix = ((PyString) prefixes[i]).getString();
                 if (indices[1] - indices[0] < strPrefix.length())
-                	continue;
+                    continue;
                 
-        		if (string.startsWith(strPrefix, indices[0]))
-        			return true;
-        	}
-        	return false;
+                if (getString().startsWith(strPrefix, indices[0]))
+                    return true;
+            }
+            return false;
         } else {
-        	throw Py.TypeError("expected a character buffer object or tuple");
+            throw Py.TypeError("expected a character buffer object or tuple");
         }
     }
 
@@ -2022,22 +2051,22 @@ public class PyString extends PyBaseString
     final boolean str_endswith(PyObject suffix, int start, PyObject end) {
         int[] indices = translateIndices(start, end);
 
-        String substr = string.substring(indices[0], indices[1]);
+        String substr = getString().substring(indices[0], indices[1]);
         if (suffix instanceof PyString) {
-	        return substr.endsWith(((PyString)suffix).string);
+            return substr.endsWith(((PyString) suffix).getString());
         } else if (suffix instanceof PyTuple) {
-        	PyObject[] suffixes = ((PyTuple)suffix).getArray();
-        	
-        	for (int i = 0 ; i < suffixes.length ; i++) {
-        		if (!(suffixes[i] instanceof PyString))
-        			throw Py.TypeError("expected a character buffer object");
+            PyObject[] suffixes = ((PyTuple)suffix).getArray();
+            
+            for (int i = 0 ; i < suffixes.length ; i++) {
+                if (!(suffixes[i] instanceof PyString))
+                    throw Py.TypeError("expected a character buffer object");
 
-        		if (substr.endsWith(((PyString)suffixes[i]).string))
-        			return true;
-        	}
-        	return false;
+                if (substr.endsWith(((PyString) suffixes[i]).getString()))
+                    return true;
+            }
+            return false;
         } else {
-        	throw Py.TypeError("expected a character buffer object or tuple");
+            throw Py.TypeError("expected a character buffer object or tuple");
         }
     } 
 
@@ -2053,11 +2082,11 @@ public class PyString extends PyBaseString
     protected int[] translateIndices(int start, PyObject end) {
         int iEnd;
         if(end == null) {
-            iEnd = string.length();
+            iEnd = getString().length();
         } else {
             iEnd = end.asInt();
         }
-        int n = string.length();
+        int n = getString().length();
         if(iEnd < 0) {
             iEnd = n + iEnd;
             if(iEnd < 0) {
@@ -2092,9 +2121,9 @@ public class PyString extends PyBaseString
             throw Py.ValueError(
                 "translation table must be 256 characters long");
 
-        StringBuilder buf = new StringBuilder(string.length());
-        for (int i=0; i < string.length(); i++) {
-            char c = string.charAt(i);
+        StringBuilder buf = new StringBuilder(getString().length());
+        for (int i=0; i < getString().length(); i++) {
+            char c = getString().charAt(i);
             if (deletechars != null && deletechars.indexOf(c) >= 0)
                 continue;
             try {
@@ -2110,9 +2139,9 @@ public class PyString extends PyBaseString
 
     //XXX: is this needed?
     public String translate(PyObject table) {
-        StringBuilder v = new StringBuilder(string.length());
-        for (int i=0; i < string.length(); i++) {
-            char ch = string.charAt(i);
+        StringBuilder v = new StringBuilder(getString().length());
+        for (int i=0; i < getString().length(); i++) {
+            char ch = getString().charAt(i);
 
             PyObject w = Py.newInteger(ch);
             PyObject x = table.__finditem__(w);
@@ -2152,15 +2181,15 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_islower_doc)
     final boolean str_islower() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isLowerCase(string.charAt(0));
+            return Character.isLowerCase(getString().charAt(0));
 
         boolean cased = false;
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (Character.isUpperCase(ch) || Character.isTitleCase(ch))
                 return false;
@@ -2176,15 +2205,15 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_isupper_doc)
     final boolean str_isupper() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isUpperCase(string.charAt(0));
+            return Character.isUpperCase(getString().charAt(0));
 
         boolean cased = false;
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (Character.isLowerCase(ch) || Character.isTitleCase(ch))
                 return false;
@@ -2200,17 +2229,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_isalpha_doc)
     final boolean str_isalpha() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isLetter(string.charAt(0));
+            return Character.isLetter(getString().charAt(0));
 
         if (n == 0)
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (!Character.isLetter(ch))
                 return false;
@@ -2224,17 +2253,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_isalnum_doc)
     final boolean str_isalnum() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return _isalnum(string.charAt(0));
+            return _isalnum(getString().charAt(0));
 
         if (n == 0)
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (!_isalnum(ch))
                 return false;
@@ -2257,11 +2286,11 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.unicode_isdecimal_doc)
     final boolean str_isdecimal() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1) {
-            char ch = string.charAt(0);
+            char ch = getString().charAt(0);
             return _isdecimal(ch);
         }
 
@@ -2269,7 +2298,7 @@ public class PyString extends PyBaseString
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (!_isdecimal(ch))
                 return false;
@@ -2288,17 +2317,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_isdigit_doc)
     final boolean str_isdigit() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isDigit(string.charAt(0));
+            return Character.isDigit(getString().charAt(0));
 
         if (n == 0)
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (!Character.isDigit(ch))
                 return false;
@@ -2312,17 +2341,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.unicode_isnumeric_doc)
     final boolean str_isnumeric() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return _isnumeric(string.charAt(0));
+            return _isnumeric(getString().charAt(0));
 
         if (n == 0)
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
             if (!_isnumeric(ch))
                 return false;
         }
@@ -2342,17 +2371,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_istitle_doc)
     final boolean str_istitle() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isTitleCase(string.charAt(0)) ||
-                   Character.isUpperCase(string.charAt(0));
+            return Character.isTitleCase(getString().charAt(0)) ||
+                   Character.isUpperCase(getString().charAt(0));
 
         boolean cased = false;
         boolean previous_is_cased = false;
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (Character.isUpperCase(ch) || Character.isTitleCase(ch)) {
                 if (previous_is_cased)
@@ -2378,17 +2407,17 @@ public class PyString extends PyBaseString
 
     @ExposedMethod(doc = BuiltinDocs.str_isspace_doc)
     final boolean str_isspace() {
-        int n = string.length();
+        int n = getString().length();
 
         /* Shortcut for single character strings */
         if (n == 1)
-            return Character.isWhitespace(string.charAt(0));
+            return Character.isWhitespace(getString().charAt(0));
 
         if (n == 0)
             return false;
 
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
 
             if (!Character.isWhitespace(ch))
                 return false;
@@ -2403,9 +2432,9 @@ public class PyString extends PyBaseString
     @ExposedMethod(doc = "isunicode is deprecated.")
     final boolean str_isunicode() {
         Py.warning(Py.DeprecationWarning, "isunicode is deprecated.");
-        int n = string.length();
+        int n = getString().length();
         for (int i = 0; i < n; i++) {
-            char ch = string.charAt(i);
+            char ch = getString().charAt(i);
             if (ch > 255)
                 return true;
         }
@@ -2448,30 +2477,49 @@ public class PyString extends PyBaseString
 
     /* arguments' conversion helper */
 
+    @Override
     public String asString(int index) throws PyObject.ConversionException {
-        return string;
+        return getString();
     }
 
     @Override
     public String asString() {
-        return string;
+        return getString();
     }
 
     @Override
     public int asInt() {
-        // We have to override asInt because we override __int__, but generally don't want
-        // implicit atoi conversions for the base types. blah
-        PyType type = getType();
-        if (type == PyString.TYPE || type == PyUnicode.TYPE || type.lookup("__int__") == null) {
-            throw Py.TypeError("an integer is required");
-        }
+        // We have to override asInt/Long/Double because we override __int/long/float__,
+        // but generally don't want implicit atoi conversions for the base types. blah
+        asNumberCheck("__int__", "an integer");
         return super.asInt();
     }
 
+    @Override
+    public long asLong() {
+        asNumberCheck("__long__", "an integer");
+        return super.asLong();
+    }
+
+    @Override
+    public double asDouble() {
+        asNumberCheck("__float__", "a float");
+        return super.asDouble();
+    }
+
+    private void asNumberCheck(String methodName, String description) {
+        PyType type = getType();
+        if (type == PyString.TYPE || type == PyUnicode.TYPE || type.lookup(methodName) == null) {
+            throw Py.TypeError(description + " is required");
+        }
+    }
+
+    @Override
     public String asName(int index) throws PyObject.ConversionException {
         return internedString();
     }
 
+    @Override
     protected String unsupportedopMessage(String op, PyObject o2) {
         if (op.equals("+")) {
             return "cannot concatenate ''{1}'' and ''{2}'' objects";
@@ -2698,40 +2746,17 @@ final class StringFormatter
         return s;
     }
 
-    private String formatFloatDecimal(PyObject arg, boolean truncate) {
-        PyFloat argAsFloat;
-        if (arg instanceof PyFloat) {
-            // Fast path
-            argAsFloat = (PyFloat)arg;
-        } else {
-            // Use __float__
-            if (arg instanceof PyInteger || arg instanceof PyLong) {
-                // Typical cases, safe to call __float__:
-                argAsFloat = arg.__float__();
-            } else  {
-                try {
-                    // We can't simply call arg.__float__() because PyString implements
-                    // it without exposing it to python (i.e, str instances has no
-                    // __float__ attribute). So, we would support strings as arguments
-                    // for %g format, which is forbidden by CPython tests (on
-                    // test_format.py).
-                    argAsFloat = (PyFloat)arg.__getattr__("__float__").__call__();
-                } catch (PyException e) {
-                    // XXX: Swallow customs AttributeError throws from __float__ methods
-                    // No better alternative for the moment
-                    if (e.match(Py.AttributeError)) {
-            throw Py.TypeError("float argument required");
+    private double asDouble(PyObject obj) {
+        try {
+            return obj.asDouble();
+        } catch (PyException pye) {
+            throw !pye.match(Py.TypeError) ? pye : Py.TypeError("float argument required");
         }
-                    throw e;
-    }
-            }
-        }
-        return formatFloatDecimal(argAsFloat.getValue(), truncate);
     }
 
     private String formatFloatDecimal(double v, boolean truncate) {
         checkPrecision("decimal");
-        java.text.NumberFormat format = java.text.NumberFormat.getInstance(
+        java.text.NumberFormat numberFormat = java.text.NumberFormat.getInstance(
                                            java.util.Locale.US);
         int prec = precision;
         if (prec == -1)
@@ -2740,15 +2765,11 @@ final class StringFormatter
             v = -v;
             negative = true;
         }
-        format.setMaximumFractionDigits(prec);
-        format.setMinimumFractionDigits(truncate ? 0 : prec);
-        format.setGroupingUsed(false);
+        numberFormat.setMaximumFractionDigits(prec);
+        numberFormat.setMinimumFractionDigits(truncate ? 0 : prec);
+        numberFormat.setGroupingUsed(false);
 
-        String ret = format.format(v);
-//         System.err.println("formatFloat: "+v+", prec="+prec+", ret="+ret);
-//         if (ret.indexOf('.') == -1) {
-//             return ret+'.';
-//         }
+        String ret = numberFormat.format(v);
         return ret;
     }
 
@@ -2756,7 +2777,7 @@ final class StringFormatter
                                          boolean truncate)
     {
         StringBuilder buf = new StringBuilder();
-        double v = arg.__float__().getValue();
+        double v = asDouble(arg);
         boolean isNegative = false;
         if (v < 0) {
             v = -v;
@@ -2955,10 +2976,8 @@ final class StringFormatter
                 string = formatFloatExponential(arg, c, false);
                 break;
             case 'f':
-            case 'F':    
-                string = formatFloatDecimal(arg, false);
-//                 if (altFlag && string.indexOf('.') == -1)
-//                     string += '.';
+            case 'F':
+                string = formatFloatDecimal(asDouble(arg), false);
                 break;
             case 'g':
             case 'G':
@@ -2967,7 +2986,7 @@ final class StringFormatter
                     precision = 6;
                 }
 
-                double v = arg.__float__().getValue();
+                double v = asDouble(arg);
                 int exponent = (int)ExtraMath.closeFloor(Math.log10(Math.abs(v == 0 ? 1 : v)));
                 if (v == Double.POSITIVE_INFINITY) {
                     string = "inf";
@@ -2975,7 +2994,7 @@ final class StringFormatter
                     string = "-inf";
                 } else if (exponent >= -4 && exponent < precision) {
                     precision -= exponent + 1;
-                    string = formatFloatDecimal(arg, !altFlag);
+                    string = formatFloatDecimal(v, !altFlag);
 
                     // XXX: this block may be unnecessary now
                     if (altFlag && string.indexOf('.') == -1) {

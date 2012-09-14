@@ -1,5 +1,15 @@
 package org.python.core;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InvalidClassException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
+import java.io.OutputStream;
+import java.io.Serializable;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
@@ -10,9 +20,11 @@ import java.util.Collection;
 import java.util.Enumeration;
 import java.util.EventListener;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Queue;
 
 import org.python.core.util.StringUtil;
 import org.python.util.Generic;
@@ -31,6 +43,29 @@ public class PyJavaType extends PyType {
                                                                    "bounds",
                                                                    "enable");
 
+
+    // Add well-known immutable classes from standard packages of
+    // java.lang, java.net, java.util that are not marked Cloneable.
+    // This was found by hand, there are likely more!
+    private final static Set<Class<?>> immutableClasses = Generic.set(
+            Boolean.class,
+            Byte.class,
+            Character.class,
+            Class.class,
+            Double.class,
+            Float.class,
+            Integer.class,
+            Long.class,
+            Short.class,
+            String.class,
+            java.net.InetAddress.class,
+            java.net.Inet4Address.class,
+            java.net.Inet6Address.class,
+            java.net.InetSocketAddress.class,
+            java.net.Proxy.class,
+            java.net.URI.class,
+            java.util.concurrent.TimeUnit.class);
+
     private static Map<Class<?>, PyBuiltinMethod[]> collectionProxies;
 
     /**
@@ -47,7 +82,7 @@ public class PyJavaType extends PyType {
     private Set<String> modified;
 
     public static PyObject wrapJavaObject(Object o) {
-        PyObject obj = new PyObjectDerived(PyType.fromClass(o.getClass()));
+        PyObject obj = new PyObjectDerived(PyType.fromClass(o.getClass(), false));
         obj.javaProxy = o;
         return obj;
     }
@@ -131,15 +166,15 @@ public class PyJavaType extends PyType {
         }
 
         Set<String> allModified = Generic.set();
-        PyJavaType[] conflicted = inConflict.toArray(new PyJavaType[inConflict.size()]);
-        for (PyJavaType type : conflicted) {
+        PyJavaType[] conflictedAttributes = inConflict.toArray(new PyJavaType[inConflict.size()]);
+        for (PyJavaType type : conflictedAttributes) {
             if (type.modified == null) {
                 continue;
             }
             for (String method : type.modified) {
                 if (!allModified.add(method)) { // Another type in conflict has this method, fail
                     PyList types = new PyList();
-                    for (PyJavaType othertype : conflicted) {
+                    for (PyJavaType othertype : conflictedAttributes) {
                         if (othertype.modified != null && othertype.modified.contains(method)) {
                             types.add(othertype);
                         }
@@ -152,7 +187,7 @@ public class PyJavaType extends PyType {
 
         // We can keep trucking, there aren't any existing method name conflicts.  Mark the
         // conflicts in all the classes so further method additions can check for trouble
-        for (PyJavaType type : conflicted) {
+        for (PyJavaType type : conflictedAttributes) {
             for (PyJavaType otherType : inConflict) {
                 if (otherType != type) {
                     if (type.conflicted == null) {
@@ -294,23 +329,23 @@ public class PyJavaType extends PyType {
             }
 
             // Now check if it's a bean property accessor
-            String name = null;
+            String beanPropertyName = null;
             boolean get = true;
             if (methname.startsWith("get") && methname.length() > 3 && n == 0) {
-                name = methname.substring(3);
+                beanPropertyName = methname.substring(3);
             } else if (methname.startsWith("is") && methname.length() > 2 && n == 0
                     && meth.getReturnType() == Boolean.TYPE) {
-                name = methname.substring(2);
+                beanPropertyName = methname.substring(2);
             } else if (methname.startsWith("set") && methname.length() > 3 && n == 1) {
-                name = methname.substring(3);
+                beanPropertyName = methname.substring(3);
                 get = false;
             }
-            if (name != null) {
-                name = normalize(StringUtil.decapitalize(name));
-                PyBeanProperty prop = props.get(name);
+            if (beanPropertyName != null) {
+                beanPropertyName = normalize(StringUtil.decapitalize(beanPropertyName));
+                PyBeanProperty prop = props.get(beanPropertyName);
                 if (prop == null) {
-                    prop = new PyBeanProperty(name, null, null, null);
-                    props.put(name, prop);
+                    prop = new PyBeanProperty(beanPropertyName, null, null, null);
+                    props.put(beanPropertyName, prop);
                 }
                 if (get) {
                     prop.getMethod = meth;
@@ -393,11 +428,11 @@ public class PyJavaType extends PyType {
             }
 
             for (Method meth : ev.eventClass.getMethods()) {
-                String name = meth.getName().intern();
-                if (dict.__finditem__(name) != null) {
+                String methodName = meth.getName().intern();
+                if (dict.__finditem__(methodName) != null) {
                     continue;
                 }
-                dict.__setitem__(name, new PyBeanEventProperty(name,
+                dict.__setitem__(methodName, new PyBeanEventProperty(methodName,
                                                                ev.eventClass,
                                                                ev.addMethod,
                                                                meth));
@@ -421,7 +456,7 @@ public class PyJavaType extends PyType {
             // If one of our superclasses  has something defined for this name, check if its a bean
             // property, and if so, try to fill in any gaps in our property from there
             PyObject fromType[] = new PyObject[] { null };
-            PyObject superForName = lookup_where(prop.__name__, fromType);
+            PyObject superForName = lookup_where_mro(prop.__name__, fromType);
             if (superForName instanceof PyBeanProperty) {
                 PyBeanProperty superProp = ((PyBeanProperty)superForName);
                 // If it has a set method and we don't, take it regardless.  If the types don't line
@@ -507,13 +542,32 @@ public class PyJavaType extends PyType {
             }
         }
         if (baseClass != Object.class) {
-            has_set = getDescrMethod(forClass, "__set__", OO) != null
+            hasGet = getDescrMethod(forClass, "__get__", OO) != null
+                    || getDescrMethod(forClass, "_doget", PyObject.class) != null
+                    || getDescrMethod(forClass, "_doget", OO) != null;
+            hasSet = getDescrMethod(forClass, "__set__", OO) != null
                     || getDescrMethod(forClass, "_doset", OO) != null;
-            has_delete = getDescrMethod(forClass, "__delete__", PyObject.class) != null
+            hasDelete = getDescrMethod(forClass, "__delete__", PyObject.class) != null
                     || getDescrMethod(forClass, "_dodel", PyObject.class) != null;
         }
         if (forClass == Object.class) {
-            // Pass __eq__ and __repr__ through to subclasses of Object
+
+            addMethod(new PyBuiltinMethodNarrow("__copy__") {
+                @Override
+                public PyObject __call__() {
+                    throw Py.TypeError("Could not copy Java object because it is not Cloneable or known to be immutable. "
+                            + "Consider monkeypatching __copy__ for " + self.getType().fastGetName());
+                }
+            });
+
+            addMethod(new PyBuiltinMethodNarrow("__deepcopy__") {
+                @Override
+                public PyObject __call__(PyObject memo) {
+                    throw Py.TypeError("Could not deepcopy Java object because it is not Serializable. "
+                            + "Consider monkeypatching __deepcopy__ for " + self.getType().fastGetName());
+                }
+            });
+
             addMethod(new PyBuiltinMethodNarrow("__eq__", 1) {
                 @Override
                 public PyObject __call__(PyObject o) {
@@ -539,7 +593,14 @@ public class PyJavaType extends PyType {
             addMethod(new PyBuiltinMethodNarrow("__repr__") {
                 @Override
                 public PyObject __call__() {
-                    return Py.newString(self.getJavaProxy().toString());
+                    String toString = self.getJavaProxy().toString();
+                    return toString == null ? Py.EmptyString : Py.newString(toString);
+                }
+            });
+            addMethod(new PyBuiltinMethodNarrow("__unicode__") {
+                @Override
+                public PyObject __call__() {
+                    return new PyUnicode(self.toString());
                 }
             });
         }
@@ -569,8 +630,123 @@ public class PyJavaType extends PyType {
                 }
             });
         }
+
+
+        if (immutableClasses.contains(forClass)) {
+
+            // __deepcopy__ just works for these objects since it uses serialization instead
+
+            addMethod(new PyBuiltinMethodNarrow("__copy__") {
+                @Override
+                public PyObject __call__() {
+                    return self;
+                }
+            });
+        }
+
+        if(forClass == Cloneable.class) {
+            addMethod(new PyBuiltinMethodNarrow("__copy__") {
+                @Override
+                public PyObject __call__() {
+                    Object obj = self.getJavaProxy();
+                    Method clone;
+                    // TODO we could specialize so that for well known objects like collections. This would avoid needing to use reflection
+                    // in the general case, because Object#clone is protected (but most subclasses are not).
+                    //
+                    // Lastly we can potentially cache the method handle in the proxy instead of looking it up each time
+                    try {
+                        clone = obj.getClass().getMethod("clone");
+                        Object copy = clone.invoke(obj);
+                        return Py.java2py(copy);
+                    } catch (Exception ex) {
+                        throw Py.TypeError("Could not copy Java object");
+                    }
+                }
+            });
+        }
+            
+        if(forClass == Serializable.class) {
+            addMethod(new PyBuiltinMethodNarrow("__deepcopy__") {
+                @Override
+                public PyObject __call__(PyObject memo) {
+                    Object obj = self.getJavaProxy();
+                    try {
+                        Object copy = cloneX(obj);
+                        return Py.java2py(copy);
+                    } catch (Exception ex) {
+                        throw Py.TypeError("Could not copy Java object");
+                    }
+                }
+            });
+            
+        }
     }
 
+    // cloneX, CloneOutput, CloneInput are verbatim from Eamonn McManus'
+    // http://weblogs.java.net/blog/emcmanus/archive/2007/04/cloning_java_ob.html
+    // blog post on deep cloning through serialization -
+    // just what we need for __deepcopy__ support of Java objects
+
+    private static <T> T cloneX(T x) throws IOException, ClassNotFoundException {
+	ByteArrayOutputStream bout = new ByteArrayOutputStream();
+	CloneOutput cout = new CloneOutput(bout);
+	cout.writeObject(x);
+	byte[] bytes = bout.toByteArray();
+	
+	ByteArrayInputStream bin = new ByteArrayInputStream(bytes);
+	CloneInput cin = new CloneInput(bin, cout);
+
+	@SuppressWarnings("unchecked")  // thanks to Bas de Bakker for the tip!
+	T clone = (T) cin.readObject();
+	return clone;
+    }
+
+    private static class CloneOutput extends ObjectOutputStream {
+	Queue<Class<?>> classQueue = new LinkedList<Class<?>>();
+
+	CloneOutput(OutputStream out) throws IOException {
+	    super(out);
+	}
+
+	@Override
+	protected void annotateClass(Class<?> c) {
+	    classQueue.add(c);
+	}
+
+	@Override
+	protected void annotateProxyClass(Class<?> c) {
+	    classQueue.add(c);
+	}
+    }
+
+    private static class CloneInput extends ObjectInputStream {
+	private final CloneOutput output;
+
+	CloneInput(InputStream in, CloneOutput output) throws IOException {
+	    super(in);
+	    this.output = output;
+	}
+
+    	@Override
+	protected Class<?> resolveClass(ObjectStreamClass osc)
+	throws IOException, ClassNotFoundException {
+	    Class<?> c = output.classQueue.poll();
+	    String expected = osc.getName();
+	    String found = (c == null) ? null : c.getName();
+	    if (!expected.equals(found)) {
+		throw new InvalidClassException("Classes desynchronized: " +
+			"found " + found + " when expecting " + expected);
+	    }
+	    return c;
+	}
+
+    	@Override
+    	protected Class<?> resolveProxyClass(String[] interfaceNames)
+	throws IOException, ClassNotFoundException {
+    	    return output.classQueue.poll();
+    	}
+    }
+    
     /**
      * Private, protected or package protected classes that implement public interfaces or extend
      * public classes can't have their implementations of the methods of their supertypes called
@@ -608,7 +784,7 @@ public class PyJavaType extends PyType {
             }
             String nmethname = normalize(meth.getName());
             PyObject[] where = new PyObject[1];
-            PyObject obj = lookup_where(nmethname, where);
+            PyObject obj = lookup_where_mro(nmethname, where);
             if (obj == null) {
                 // Nothing in our supertype hierarchy defines something with this name, so it
                 // must not be visible there.
@@ -739,6 +915,7 @@ public class PyJavaType extends PyType {
             collectionProxies = Generic.map();
 
             PyBuiltinMethodNarrow iterableProxy = new PyBuiltinMethodNarrow("__iter__") {
+                @Override
                 public PyObject __call__() {
                     return new IteratorIter(((Iterable)self.getJavaProxy()));
                 }
@@ -764,6 +941,7 @@ public class PyJavaType extends PyType {
                                                                            containsProxy});
 
             PyBuiltinMethodNarrow iteratorProxy = new PyBuiltinMethodNarrow("__iter__") {
+                @Override
                 public PyObject __call__() {
                     return new IteratorIter(((Iterator)self.getJavaProxy()));
                 }
@@ -771,6 +949,7 @@ public class PyJavaType extends PyType {
             collectionProxies.put(Iterator.class, new PyBuiltinMethod[] {iteratorProxy});
 
             PyBuiltinMethodNarrow enumerationProxy = new PyBuiltinMethodNarrow("__iter__") {
+                @Override
                 public PyObject __call__() {
                     return new EnumerationIter(((Enumeration)self.getJavaProxy()));
                 }
@@ -791,6 +970,7 @@ public class PyJavaType extends PyType {
                 }
             };
             PyBuiltinMethodNarrow mapContainsProxy = new MapMethod("__contains__", 1) {
+                @Override
                 public PyObject __call__(PyObject obj) {
                     Object other = obj.__tojava__(Object.class);
                     return asMap().containsKey(other) ? Py.True : Py.False;
@@ -900,26 +1080,94 @@ public class PyJavaType extends PyType {
         public void setItem(int idx, PyObject value) {
             list.set(idx, value.__tojava__(Object.class));
         }
-
+        
         @Override
         public void setSlice(int start, int stop, int step, PyObject value) {
-            if (step == 0) {
-                return;
+            if (stop < start) {
+                stop = start;
             }
-            if (value.javaProxy == this) {
-                List newseq = new ArrayList(len());
-                for (Object object : ((List)value.javaProxy)) {
-                    newseq.add(object);
+            if (value.javaProxy == this.list) {
+                List<Object> xs = Generic.list();
+                xs.addAll(this.list);
+                setsliceList(start, stop, step, xs);
+            } else if (value instanceof PyList) {
+                setslicePyList(start, stop, step, (PyList)value);
+            } else {
+                Object valueList = value.__tojava__(List.class);
+                if (valueList != null && valueList != Py.NoConversion) {
+                    setsliceList(start, stop, step, (List)valueList);
+                } else {
+                    setsliceIterator(start, stop, step, value.asIterable().iterator());
                 }
-                value = Py.java2py(newseq);
-            }
-            int j = start;
-            for (PyObject obj : value.asIterable()) {
-                setItem(j, obj);
-                j += step;
             }
         }
 
+        
+        
+        final private void setsliceList(int start, int stop, int step, List<Object> value) {
+            if (step == 1) {
+                list.subList(start, stop).clear();
+                list.addAll(start, value);
+            } else {
+                int size = list.size();
+                Iterator<Object> iter = value.listIterator();
+                for (int j = start; iter.hasNext(); j += step) {
+                    Object item =iter.next();
+                    if (j >= size) {
+                        list.add(item);
+                    } else {
+                        list.set(j, item);
+                    }
+                }
+            }
+        }
+
+        final private void setsliceIterator(int start, int stop, int step, Iterator<PyObject> iter) {
+            if (step == 1) {
+                List<Object> insertion = new ArrayList<Object>();
+                if (iter != null) {
+                    while (iter.hasNext()) {
+                        insertion.add(iter.next().__tojava__(Object.class));
+                    }
+                }
+                list.subList(start, stop).clear();
+                list.addAll(start, insertion);
+            } else {
+                int size = list.size();
+                for (int j = start; iter.hasNext(); j += step) {
+                    Object item = iter.next().__tojava__(Object.class);
+                    if (j >= size) {
+                        list.add(item);
+                    } else {
+                        list.set(j, item);
+                    }
+                }
+            }
+        }
+
+        final private void setslicePyList(int start, int stop, int step, PyList value) {
+            if (step == 1) {
+                list.subList(start, stop).clear();
+                int n = value.getList().size();
+                for (int i=0, j=start; i<n; i++, j++) {
+                    Object item = value.getList().get(i).__tojava__(Object.class);
+                    list.add(j, item);
+                }
+            } else {
+                int size = list.size();
+                Iterator<PyObject> iter = value.getList().listIterator();
+                for (int j = start; iter.hasNext(); j += step) {
+                    Object item = iter.next().__tojava__(Object.class);
+                    if (j >= size) {
+                        list.add(item);
+                    } else {
+                        list.set(j, item);
+                    }
+                }
+            }
+        }
+
+        
         @Override
         public void delItems(int start, int stop) {
             int n = stop - start;

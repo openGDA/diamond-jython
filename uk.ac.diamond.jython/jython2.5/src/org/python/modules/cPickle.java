@@ -350,10 +350,7 @@ public class cPickle implements ClassDictInit {
      * The doc string
      */
     public static String __doc__ =
-       "Java implementation and optimization of the Python pickle module\n" +
-       "\n" +
-       "$Id: cPickle.java 6433 2009-05-31 03:26:57Z pjenvey $\n";
-
+       "Java implementation and optimization of the Python pickle module\n";
 
     /**
      * The program version.
@@ -548,7 +545,7 @@ public class cPickle implements ClassDictInit {
      * @param file      a file-like object, can be a cStringIO.StringIO,
      *                  a PyFile or any python object which implements a
      *                  <i>write</i> method. The data will be written as text.
-     * @returns a new Pickler instance.
+     * @return a new Pickler instance.
      */
     public static Pickler Pickler(PyObject file) {
         return new Pickler(file, 0);
@@ -560,7 +557,7 @@ public class cPickle implements ClassDictInit {
      *                  a PyFile or any python object which implements a
      *                  <i>write</i> method.
      * @param protocol  pickle protocol version (0 - text, 1 - pre-2.3 binary, 2 - 2.3)
-     * @returns         a new Pickler instance.
+     * @return         a new Pickler instance.
      */
     public static Pickler Pickler(PyObject file, int protocol) {
         return new Pickler(file, protocol);
@@ -572,7 +569,7 @@ public class cPickle implements ClassDictInit {
      * @param file      a file-like object, can be a cStringIO.StringIO,
      *                  a PyFile or any python object which implements a
      *                  <i>read</i> and <i>readline</i> method.
-     * @returns         a new Unpickler instance.
+     * @return         a new Unpickler instance.
      */
     public static Unpickler Unpickler(PyObject file) {
         return new Unpickler(file);
@@ -586,7 +583,6 @@ public class cPickle implements ClassDictInit {
      *                  a PyFile or any python object which implements a
      *                  <i>write</i>  method. The data will be written as
      *                  text.
-     * @returns         a new Unpickler instance.
      */
     public static void dump(PyObject object, PyObject file) {
         dump(object, file, 0);
@@ -599,7 +595,6 @@ public class cPickle implements ClassDictInit {
      *                  a PyFile or any python object which implements a
      *                  <i>write</i> method.
      * @param protocol  pickle protocol version (0 - text, 1 - pre-2.3 binary, 2 - 2.3)
-     * @returns         a new Unpickler instance.
      */
     public static void dump(PyObject object, PyObject file, int protocol) {
         new Pickler(file, protocol).dump(object);
@@ -609,7 +604,7 @@ public class cPickle implements ClassDictInit {
     /**
      * Shorthand function which pickles and returns the string representation.
      * @param object    a data object which should be pickled.
-     * @returns         a string representing the pickled object.
+     * @return         a string representing the pickled object.
      */
     public static PyString dumps(PyObject object) {
         return dumps(object, 0);
@@ -620,7 +615,7 @@ public class cPickle implements ClassDictInit {
      * Shorthand function which pickles and returns the string representation.
      * @param object    a data object which should be pickled.
      * @param protocol  pickle protocol version (0 - text, 1 - pre-2.3 binary, 2 - 2.3)
-     * @returns         a string representing the pickled object.
+     * @return         a string representing the pickled object.
      */
     public static PyString dumps(PyObject object, int protocol) {
         cStringIO.StringIO file = cStringIO.StringIO();
@@ -635,7 +630,7 @@ public class cPickle implements ClassDictInit {
      * @param file      a file-like object, can be a cStringIO.StringIO,
      *                  a PyFile or any python object which implements a
      *                  <i>read</i> and <i>readline</i> method.
-     * @returns         a new object.
+     * @return         a new object.
      */
     public static Object load(PyObject file) {
         return new Unpickler(file).load();
@@ -647,7 +642,7 @@ public class cPickle implements ClassDictInit {
      * returns the new object.
      * @param str       a strings which must contain a pickled object
      *                  representation.
-     * @returns         a new object.
+     * @return         a new object.
      */
     public static Object loads(PyObject str) {
         cStringIO.StringIO file = cStringIO.StringIO(str.toString());
@@ -1575,6 +1570,7 @@ public class cPickle implements ClassDictInit {
          * persistent_load().
          */
         public PyObject persistent_load = null;
+        public PyObject find_global = null;
 
         private PyObject mark = new PyString("spam");
 
@@ -1984,12 +1980,11 @@ public class cPickle implements ClassDictInit {
 
 
         final private PyObject find_class(String module, String name) {
-            PyObject fc = dict.__finditem__("find_global");
-            if (fc != null) {
-               if (fc == Py.None)
+            if (find_global != null) {
+               if (find_global == Py.None)
                    throw new PyException(UnpicklingError,
                          "Global and instance pickles are not supported.");
-               return fc.__call__(new PyString(module), new PyString(name));
+               return find_global.__call__(new PyString(module), new PyString(name));
             }
 
             PyObject modules = Py.getSystemState().modules;
@@ -2247,7 +2242,7 @@ public class cPickle implements ClassDictInit {
 
     private static PyObject importModule(String name) {
         PyObject fromlist = new PyTuple(Py.newString("__doc__"));
-        return __builtin__.__import__(name, null, null, fromlist);
+        return __builtin__.__import__(name, Py.None, Py.None, fromlist);
     }
 
     private static PyObject getJavaFunc(String name, String methodName) {

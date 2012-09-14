@@ -1,7 +1,6 @@
 /*
 * Jython Database Specification API 2.0
 *
-* $Id: PostgresqlDataHandler.java 6314 2009-05-07 04:15:11Z pjenvey $
 *
 * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
 *
@@ -24,8 +23,6 @@ import java.sql.Types;
  * Postgresql specific data handling.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6314 $
  */
 public class PostgresqlDataHandler extends RowIdHandler {
 
@@ -38,6 +35,7 @@ public class PostgresqlDataHandler extends RowIdHandler {
     super(datahandler);
   }
 
+  @Override
   protected String getRowIdMethodName() {
     return "getLastOID";
   }
@@ -51,6 +49,7 @@ public class PostgresqlDataHandler extends RowIdHandler {
    * @return the mapped Python object
    * @throws SQLException thrown for a sql exception
    */
+  @Override
   public PyObject getPyObject(ResultSet set, int col, int type) throws SQLException {
 
     PyObject obj = Py.None;
@@ -61,7 +60,7 @@ public class PostgresqlDataHandler extends RowIdHandler {
       case Types.DECIMAL:
 
         BigDecimal bd = set.getBigDecimal(col);
-        obj = (bd == null) ? Py.None : Py.newFloat(bd.doubleValue());
+        obj = (bd == null) ? Py.None : Py.newDecimal(bd.toString());
         break;
 
       case Types.OTHER:
@@ -78,7 +77,6 @@ public class PostgresqlDataHandler extends RowIdHandler {
       default :
         obj = super.getPyObject(set, col, type);
     }
-
     return (set.wasNull() || (obj == null)) ? Py.None : obj;
   }
 
@@ -91,6 +89,7 @@ public class PostgresqlDataHandler extends RowIdHandler {
    * @param type
    * @throws SQLException
    */
+  @Override
   public void setJDBCObject(PreparedStatement stmt, int index, PyObject object, int type) throws SQLException {
 
     if (DataHandler.checkNull(stmt, index, object, type)) {
@@ -108,7 +107,7 @@ public class PostgresqlDataHandler extends RowIdHandler {
         } else {
           varchar = (String) object.__tojava__(String.class);
         }
-        
+
         stmt.setObject(index, varchar, type);
         break;
 
@@ -116,6 +115,8 @@ public class PostgresqlDataHandler extends RowIdHandler {
         super.setJDBCObject(stmt, index, object, type);
     }
   }
+  
+  @Override
   public void setJDBCObject(PreparedStatement stmt, int index, PyObject object) throws SQLException {
       // PostgreSQL doesn't support BigIntegers without explicitely setting the
       // type.

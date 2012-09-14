@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: SQLServerDataHandler.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -24,8 +23,6 @@ import java.sql.Types;
  * SQLServer specific data handling.
  *
  * @author brian zimmer
- * @author last revised by $Author: bzimmer $
- * @version $Revision: 2414 $
  */
 public class SQLServerDataHandler extends FilterDataHandler {
 

@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: JDBC20DataHandler.java 6610 2009-07-31 04:52:17Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -29,8 +28,6 @@ import org.python.core.util.StringUtil;
  * Support for JDBC 2.x type mappings, including Arrays, CLOBs and BLOBs.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6610 $
  */
 public class JDBC20DataHandler extends FilterDataHandler {
 

@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: DBSource.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -18,7 +17,6 @@ import org.python.core.PyTuple;
  * A database source.  Given a PyConnection and information about the query, produce the data.
  *
  * @author brian zimmer
- * @version $Revision: 2414 $
  */
 public class DBSource extends BaseDB implements Source {
 

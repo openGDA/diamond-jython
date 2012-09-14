@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: DateFactory.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2003 brian zimmer <bzimmer@ziclix.com>
  *
@@ -14,8 +13,6 @@ import org.python.core.PyObject;
  * Provide an extensible way to create dates for zxJDBC.
  *
  * @author brian zimmer
- * @author last revised by $Author: bzimmer $
- * @version $Revision: 2414 $
  */
 public interface DateFactory {
 

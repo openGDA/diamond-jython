@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: Connect.java 5206 2008-08-19 21:06:39Z fwierzbicki $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -19,8 +18,6 @@ import com.ziclix.python.sql.util.*;
  * Connect using DriverManager.
  *
  * @author brian zimmer
- * @author last revised by $Author: fwierzbicki $
- * @version $Revision: 5206 $
  */
 public class Connect extends PyObject {
 

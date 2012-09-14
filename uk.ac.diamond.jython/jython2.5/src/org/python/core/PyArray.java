@@ -304,17 +304,16 @@ public class PyArray extends PySequence implements Cloneable {
         return array___iadd__(other);
     }
 
-    @ExposedMethod
+    @ExposedMethod(type = MethodType.BINARY)
     final PyObject array___iadd__(PyObject other) {
-        PyArray otherArr = null;
         if (!(other instanceof PyArray)) {
-            throw Py.TypeError(String.format("can only append array (not \"%.200s\") to array",
-                                             other.getType().fastGetName()));
+            return null;
         }
-        otherArr = (PyArray)other;
+
+        PyArray otherArr = (PyArray)other;
         if (!otherArr.typecode.equals(this.typecode)) {
-            throw Py.TypeError("can only append arrays of the same type, "
-                    + "expected '" + this.type + ", found " + otherArr.type);
+            throw Py.TypeError("can only append arrays of the same type, expected '"
+                               + this.type + ", found " + otherArr.type);
         }
         delegate.appendArray(otherArr.delegate.copyArray());
         return this;
@@ -332,16 +331,16 @@ public class PyArray extends PySequence implements Cloneable {
      *            a PyArray to be added to the instance
      * @return the result of the addition as a new PyArray instance
      */
-    @ExposedMethod
+    @ExposedMethod(type = MethodType.BINARY)
     final PyObject array___add__(PyObject other) {
-        PyArray otherArr = null;
-        if(!(other instanceof PyArray)) {
-            throw Py.TypeError("can only append another array to an array");
+        if (!(other instanceof PyArray)) {
+            return null;
         }
-        otherArr = (PyArray)other;
-        if(!otherArr.typecode.equals(this.typecode)) {
-            throw Py.TypeError("can only append arrays of the same type, "
-                    + "expected '" + this.type + ", found " + otherArr.type);
+
+        PyArray otherArr = (PyArray)other;
+        if (!otherArr.typecode.equals(this.typecode)) {
+            throw Py.TypeError("can only append arrays of the same type, expected '" + this.type
+                               + ", found " + otherArr.type);
         }
         PyArray ret = new PyArray(this);
         ret.delegate.appendArray(otherArr.delegate.copyArray());
@@ -413,7 +412,13 @@ public class PyArray extends PySequence implements Cloneable {
     public Object __tojava__(Class<?> c) {
         if(c == Object.class
                 || (c.isArray() && c.getComponentType().isAssignableFrom(type))) {
-            return data;
+            if (delegate.capacity != delegate.size) {
+                // when unboxing, need to shrink the array first, otherwise incorrect
+                // results to Java
+                return delegate.copyArray();
+            } else {
+                return data;
+            }
         }
         if(c.isInstance(this))
             return this;

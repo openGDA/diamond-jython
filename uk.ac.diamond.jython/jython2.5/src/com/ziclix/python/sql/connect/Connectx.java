@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: Connectx.java 6663 2009-08-12 03:12:07Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -29,8 +28,6 @@ import com.ziclix.python.sql.util.PyArgParser;
  * Connect using through a javax.sql.DataSource or javax.sql.ConnectionPooledDataSource.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6663 $
  */
 public class Connectx extends PyObject {
 

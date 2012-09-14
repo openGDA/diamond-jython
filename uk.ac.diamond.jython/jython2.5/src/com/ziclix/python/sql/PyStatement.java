@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: PyStatement.java 6694 2009-08-18 02:44:03Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -25,7 +24,6 @@ import java.sql.Statement;
  * Class PyStatement
  *
  * @author brian zimmer
- * @version $Revision: 6694 $
  */
 public class PyStatement extends PyObject {
 
@@ -146,10 +144,7 @@ public class PyStatement extends PyObject {
      * @param dict
      */
     static public void classDictInit(PyObject dict) {
-        PyObject version =
-                Py.newString("$Revision: 6694 $").__getslice__(Py.newInteger(11),
-                                                               Py.newInteger(-2));
-        dict.__setitem__("__version__", version);
+        dict.__setitem__("__version__", Py.newString("7290"));
 
         // hide from python
         dict.__setitem__("classDictInit", null);

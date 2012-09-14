@@ -7,15 +7,23 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.Charset;
 import java.nio.charset.UnsupportedCharsetException;
 import java.security.AccessControlException;
+import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.Map.Entry;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentMap;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
@@ -34,8 +42,7 @@ import org.python.util.Generic;
  */
 // xxx Many have lamented, this should really be a module!
 // but it will require some refactoring to see this wish come true.
-public class PySystemState extends PyObject
-{
+public class PySystemState extends PyObject implements ClassDictInit {
     public static final String PYTHON_CACHEDIR = "python.cachedir";
     public static final String PYTHON_CACHEDIR_SKIP = "python.cachedir.skip";
     public static final String PYTHON_CONSOLE_ENCODING = "python.console.encoding";
@@ -46,6 +53,7 @@ public class PySystemState extends PyObject
 
     private static final String JAR_URL_PREFIX = "jar:file:";
     private static final String JAR_SEPARATOR = "!";
+    private static final String VFSZIP_PREFIX = "vfszip:";
 
     public static final PyString version = new PyString(Version.getVersion());
     public static final int hexversion = ((Version.PY_MAJOR_VERSION << 24) |
@@ -58,6 +66,8 @@ public class PySystemState extends PyObject
 
     public final static int maxunicode = 1114111;
     public static PyTuple subversion;
+
+    public static PyTuple _mercurial;
     /**
      * The copyright notice for this release.
      */
@@ -125,8 +135,6 @@ public class PySystemState extends PyObject
 
     private String currentWorkingDir;
 
-    private PyObject environ;
-
     private ClassLoader classLoader = null;
 
     public PyObject stdout, stderr, stdin;
@@ -144,8 +152,19 @@ public class PySystemState extends PyObject
 
     private int recursionlimit = 1000;
 
+    /** true when a SystemRestart is triggered. */
+    public boolean _systemRestart = false;
+
+    // Automatically close resources associated with a PySystemState when they get GCed
+    private final PySystemStateCloser closer;
+    private static final ReferenceQueue<PySystemState> systemStateQueue =
+            new ReferenceQueue<PySystemState>();
+    private static final ConcurrentMap<WeakReference<PySystemState>,
+                                       PySystemStateCloser> sysClosers = Generic.concurrentMap();
+
     public PySystemState() {
         initialize();
+        closer = new PySystemStateCloser(this);
         modules = new PyStringMap();
 
         argv = (PyList)defaultArgv.repeat(1);
@@ -162,7 +181,6 @@ public class PySystemState extends PyObject
         path_importer_cache = new PyDictionary();
 
         currentWorkingDir = new File("").getAbsolutePath();
-        initEnviron();
 
         // Set up the initial standard ins and outs
         String mode = Options.unbuffered ? "b" : "";
@@ -170,13 +188,7 @@ public class PySystemState extends PyObject
         stdin = __stdin__ = new PyFile(System.in, "<stdin>", "r" + mode, buffering, false);
         stdout = __stdout__ = new PyFile(System.out, "<stdout>", "w" + mode, buffering, false);
         stderr = __stderr__ = new PyFile(System.err, "<stderr>", "w" + mode, 0, false);
-        if (Py.getSystemState() != null) {
-            // XXX: initEncoding fails without an existing sys module as it can't import
-            // os (for os.isatty). In that case PySystemState.doInitialize calls it for
-            // us. The correct fix for this is rewriting the posix/nt module portions of
-            // os in Java
-            initEncoding();
-        }
+        initEncoding();
 
         __displayhook__ = new PySystemStateFunctions("displayhook", 10, 1, 1);
         __excepthook__ = new PySystemStateFunctions("excepthook", 30, 3, 3);
@@ -189,6 +201,12 @@ public class PySystemState extends PyObject
         __dict__.invoke("update", getType().fastGetDict());
         __dict__.__setitem__("displayhook", __displayhook__);
         __dict__.__setitem__("excepthook", __excepthook__);
+    }
+
+    public static void classDictInit(PyObject dict) {
+        // XXX: Remove bean accessors for settrace/profile that we don't want
+        dict.__setitem__("trace", null);
+        dict.__setitem__("profile", null);
     }
 
     void reload() throws PyIgnoreMethodTag {
@@ -434,27 +452,6 @@ public class PySystemState extends PyObject
     }
 
     /**
-     * Initialize the environ dict from System.getenv. environ may be empty when the
-     * security policy doesn't grant us access.
-     */
-    public void initEnviron() {
-        environ = new PyDictionary();
-        Map<String, String> env;
-        try {
-            env = System.getenv();
-        } catch (SecurityException se) {
-            return;
-        }
-        for (Map.Entry<String, String> entry : env.entrySet()) {
-            environ.__setitem__(Py.newString(entry.getKey()), Py.newString(entry.getValue()));
-        }
-    }
-
-    public PyObject getEnviron() {
-        return environ;
-    }
-
-    /**
      * Change the current working directory to the specified path.
      *
      * path is assumed to be absolute and canonical (via
@@ -656,12 +653,7 @@ public class PySystemState extends PyObject
             }
         }
         if (!registry.containsKey(PYTHON_CONSOLE_ENCODING)) {
-            String encoding;
-            try {
-                encoding = System.getProperty("file.encoding");
-            } catch (SecurityException se) {
-                encoding = null;
-            }
+            String encoding = getPlatformEncoding();
             if (encoding != null) {
                 registry.put(PYTHON_CONSOLE_ENCODING, encoding);
             }
@@ -669,7 +661,40 @@ public class PySystemState extends PyObject
         // Set up options from registry
         Options.setFromRegistry();
     }
+    
+    /**
+     * @return the encoding of the underlying platform; can be <code>null</code>
+     */
+    private static String getPlatformEncoding() {
+        // first try to grab the Console encoding
+        String encoding = getConsoleEncoding();
+        if (encoding == null) {
+            try {
+                encoding = System.getProperty("file.encoding");
+            } catch (SecurityException se) {
+                // ignore, can't do anything about it
+            }
+        }
+        return encoding;
+    }
 
+    /**
+     * @return the console encoding; can be <code>null</code>
+     */
+    private static String getConsoleEncoding() {
+        String encoding = null;
+        try {
+            // the Console class is only present in java 6 - have to use reflection
+            Class<?> consoleClass = Class.forName("java.io.Console");
+            Method encodingMethod = consoleClass.getDeclaredMethod("encoding");
+            encodingMethod.setAccessible(true); // private static method
+            encoding = (String)encodingMethod.invoke(consoleClass);
+        } catch (Exception e) {
+            // ignore any exception
+        }
+        return encoding;
+    }
+    
     private static void addRegistryFile(File file) {
         if (file.exists()) {
             if (!file.isDirectory()) {
@@ -921,8 +946,9 @@ public class PySystemState extends PyObject
                                    Py.newInteger(Version.PY_MICRO_VERSION),
                                    Py.newString(s),
                                    Py.newInteger(Version.PY_RELEASE_SERIAL));
-        subversion = new PyTuple(Py.newString("Jython"), Py.newString(Version.BRANCH),
-                                 Py.newString(Version.SVN_REVISION));
+        subversion = new PyTuple(Py.newString("Jython"), Py.EmptyString, Py.EmptyString);
+        _mercurial = new PyTuple(Py.newString("Jython"), Py.newString(Version.getHGIdentifier()),
+                                 Py.newString(Version.getHGVersion()));
     }
 
     public static boolean isPackageCacheEnabled() {
@@ -1087,22 +1113,43 @@ public class PySystemState extends PyObject
      * @return the full name of the jar file containing this class, <code>null</code> if not available.
      */
     private static String getJarFileName() {
-        String jarFileName = null;
-        Class thisClass = PySystemState.class;
+        Class<PySystemState> thisClass = PySystemState.class;
         String fullClassName = thisClass.getName();
         String className = fullClassName.substring(fullClassName.lastIndexOf(".") + 1);
         URL url = thisClass.getResource(className + ".class");
-        // we expect an URL like jar:file:/install_dir/jython.jar!/org/python/core/PySystemState.class
+        return getJarFileNameFromURL(url);
+    }
+
+    protected static String getJarFileNameFromURL(URL url) {
+        String jarFileName = null;
         if (url != null) {
             try {
-                String urlString = URLDecoder.decode(url.toString(),
-                                                     Charset.defaultCharset().name());
+                // escape plus signs, since the URLDecoder would turn them into spaces
+                final String plus = "\\+";
+                final String escapedPlus = "__ppluss__";
+                String rawUrl = url.toString();
+                rawUrl = rawUrl.replaceAll(plus, escapedPlus);
+                String urlString = URLDecoder.decode(rawUrl, "UTF-8");
+                urlString = urlString.replaceAll(escapedPlus, plus);
                 int jarSeparatorIndex = urlString.lastIndexOf(JAR_SEPARATOR);
                 if (urlString.startsWith(JAR_URL_PREFIX) && jarSeparatorIndex > 0) {
+                    // jar:file:/install_dir/jython.jar!/org/python/core/PySystemState.class
                     jarFileName = urlString.substring(JAR_URL_PREFIX.length(), jarSeparatorIndex);
+                } else if (urlString.startsWith(VFSZIP_PREFIX)) {
+                    // vfszip:/some/path/jython.jar/org/python/core/PySystemState.class
+                    final String path = PySystemState.class.getName().replace('.', '/');
+                    int jarIndex = urlString.indexOf(".jar/".concat(path));
+                    if (jarIndex > 0) {
+                        jarIndex += 4;
+                        int start = VFSZIP_PREFIX.length();
+                        if (Platform.IS_WINDOWS) {
+                            // vfszip:/C:/some/path/jython.jar/org/python/core/PySystemState.class
+                            start++;
+                        }
+                        jarFileName = urlString.substring(start, jarIndex);
+                    }
                 }
-            } catch (Exception e) {
-            }
+            } catch (Exception e) {}
         }
         return jarFileName;
     }
@@ -1243,7 +1290,115 @@ public class PySystemState extends PyObject
              throw Py.ValueError("call stack is not deep enough");
         return f;
     }
+
+    public void registerCloser(Callable<Void> resourceCloser) {
+        closer.registerCloser(resourceCloser);
+    }
+
+    public boolean unregisterCloser(Callable<Void> resourceCloser) {
+        return closer.unregisterCloser(resourceCloser);
+    }
+
+    public void cleanup() {
+        closer.cleanup();
+    }
+
+    private static class PySystemStateCloser {
+
+        private final Set<Callable<Void>> resourceClosers = new LinkedHashSet<Callable<Void>>();
+        private volatile boolean isCleanup = false;
+        private final Thread shutdownHook;
+
+        private PySystemStateCloser(PySystemState sys) {
+            shutdownHook = initShutdownCloser();
+            WeakReference<PySystemState> ref =
+                    new WeakReference<PySystemState>(sys, systemStateQueue);
+            sysClosers.put(ref, this);
+            cleanupOtherClosers();
+        }
+
+        private static void cleanupOtherClosers() {
+            Reference<? extends PySystemState> ref;
+            while ((ref = systemStateQueue.poll()) != null) {
+                PySystemStateCloser closer = sysClosers.get(ref);
+                closer.cleanup();
+            }
+        }
+
+        private synchronized void registerCloser(Callable<Void> closer) {
+            if (!isCleanup) {
+                resourceClosers.add(closer);
+            }
+        }
+
+        private synchronized boolean unregisterCloser(Callable<Void> closer) {
+            return resourceClosers.remove(closer);
+        }
+
+        private synchronized void cleanup() {
+            if (isCleanup) {
+                return;
+            }
+            isCleanup = true;
+
+            // close this thread so we can unload any associated classloaders in cycle
+            // with this instance
+            if (shutdownHook != null) {
+                try {
+                    Runtime.getRuntime().removeShutdownHook(shutdownHook);
+                } catch (IllegalStateException e) {
+                    // JVM is already shutting down, so we cannot remove this shutdown hook anyway
+                }
+            }
+
+            for (Callable<Void> callable : resourceClosers) {
+                try {
+                    callable.call();
+                } catch (Exception e) {
+                    // just continue, nothing we can do
+                }
+            }
+            resourceClosers.clear();
+        }
+
+        // Python scripts expect that files are closed upon an orderly cleanup of the VM.
+        private Thread initShutdownCloser() {
+            try {
+                Thread shutdownHook = new ShutdownCloser();
+                Runtime.getRuntime().addShutdownHook(shutdownHook);
+                return shutdownHook;
+            } catch (SecurityException se) {
+                Py.writeDebug("PySystemState", "Can't register cleanup closer hook");
+                return null;
+            }
+        }
+
+        private class ShutdownCloser extends Thread {
+
+            private ShutdownCloser() {
+                super("Jython Shutdown Closer");
+            }
+
+            @Override
+            public synchronized void run() {
+                if (resourceClosers == null) {
+                    // resourceClosers can be null in some strange cases
+                    return;
+                }
+                for (Callable<Void> callable : resourceClosers) {
+                    try {
+                        callable.call(); // side effect of being removed from this set
+                    } catch (Exception e) {
+                        // continue - nothing we can do now!
+                    }
+                }
+                resourceClosers.clear();
+            }
+        }
+
+    }
 }
+
 
 class PySystemStateFunctions extends PyBuiltinFunctionSet
 {

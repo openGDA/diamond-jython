@@ -32,6 +32,11 @@ public class JLineConsole extends InteractiveConsole {
     /** Main interface to JLine. */
     protected ConsoleReader reader;
 
+    /** Set by readline.set_startup_hook */
+    protected PyObject startup_hook;
+
+    protected PyObject pre_input_hook;
+
     /** Whether reader is a WindowsTerminal. */
     private boolean windows;
 
@@ -73,6 +78,7 @@ public class JLineConsole extends InteractiveConsole {
             Writer output = new OutputStreamWriter(new FileOutputStream(FileDescriptor.out),
                                                    "ISO-8859-1");
             reader = new ConsoleReader(input, output, getBindings());
+            reader.setBellEnabled(false);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -116,6 +122,13 @@ public class JLineConsole extends InteractiveConsole {
 
         while (true) {
             try {
+                if (startup_hook != null) {
+                    try {
+                        startup_hook.__call__();
+                    } catch (Exception ex) {
+                        System.err.println(ex);
+                    }
+                }
                 line = reader.readLine(promptString);
                 break;
             } catch (IOException ioe) {
@@ -155,5 +168,27 @@ public class JLineConsole extends InteractiveConsole {
      */
     private boolean isEOF(String line) {
         return line == null || (windows && CTRL_Z.equals(line));
+    }
+
+    /**
+     * @return the JLine console reader associated with this interpreter
+     */
+    public ConsoleReader getReader() {
+        return reader;
+    }
+
+
+    /**
+     * @return the startup hook (called prior to each readline)
+     */
+    public PyObject getStartupHook() {
+        return startup_hook;
+    }
+
+    /**
+     * Sets the startup hook (called prior to each readline)
+     */
+    public void setStartupHook(PyObject hook) {
+        startup_hook = hook;
     }
 }

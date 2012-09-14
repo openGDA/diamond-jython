@@ -2,20 +2,23 @@
 package org.python.core.util;
 
 import java.io.ByteArrayOutputStream;
-import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import org.python.core.imp;
-import org.python.core.Py;
-import org.python.core.PyException;
 import org.python.core.PyFile;
 
 /**
  * Utility methods for Java file handling.
  */
 public class FileUtil {
+
+    /**
+     * Creates a PyFile that reads from the given <code>InputStream</code> with mode.
+     */
+    public static PyFile wrap(InputStream is, String mode) {
+        return new PyFile(is, "<Java InputStream '" + is + "' as file>", mode, -1, true);    
+    }
 
     /**
      * Creates a PyFile that reads from the given <code>InputStream</code> with bufsize.
@@ -64,14 +67,4 @@ public class FileUtil {
         }
         return out.toByteArray();
     }
-
-    public static boolean isatty(FileDescriptor fd) {
-        try {
-            return imp.load("os").__getattr__("isatty").__call__(Py.java2py(fd)).__nonzero__();
-        } catch (PyException e) {
-            // Weak isatty check copied from jna-posix JavaPOSIX class
-            return fd == FileDescriptor.in || fd == FileDescriptor.out || fd == FileDescriptor.err;
-        }
-    }
-
 }

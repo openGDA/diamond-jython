@@ -142,7 +142,7 @@ public abstract class CachedJarsPackageManager extends PackageManager {
 
         List<String>[] vec = zipPackages.get(packageName);
         if (vec == null) {
-            vec = new List[] { Generic.list(), Generic.list() };
+            vec = createGenericStringListArray();
             zipPackages.put(packageName, vec);
         }
         int access = checkAccess(zip);
@@ -153,6 +153,11 @@ public abstract class CachedJarsPackageManager extends PackageManager {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private List<String>[] createGenericStringListArray(){
+        return new List[] { Generic.list(), Generic.list() };
+    }
+    
     // Extract all of the packages in a single jarfile
     private Map<String, String> getZipPackages(InputStream jarin) throws IOException {
         Map<String, List<String>[]> zipPackages = Generic.map();
@@ -303,15 +308,21 @@ public abstract class CachedJarsPackageManager extends PackageManager {
                     entry.mtime = mtime;
                 }
 
-                InputStream jarin;
-                if (jarconn == null) {
-                    jarin = new BufferedInputStream(
-                            new FileInputStream(jarfile));
-                } else {
-                    jarin = jarconn.getInputStream();
-                }
+                InputStream jarin = null;
+                try {
+                    if (jarconn == null) {
+                        jarin = new BufferedInputStream(
+                                new FileInputStream(jarfile));
+                    } else {
+                        jarin = jarconn.getInputStream();
+                    }
 
-                zipPackages = getZipPackages(jarin);
+                    zipPackages = getZipPackages(jarin);
+                } finally {
+                    if (jarin != null) {
+                        jarin.close();
+                    }
+                }
 
                 if (caching) {
                     writeCacheFile(entry, jarcanon, zipPackages, brandNew);
@@ -351,8 +362,9 @@ public abstract class CachedJarsPackageManager extends PackageManager {
 
         debug("reading cache, '" + jarcanon + "'");
 
+        DataInputStream istream = null;
         try {
-            DataInputStream istream = inOpenCacheFile(cachefile);
+            istream = inOpenCacheFile(cachefile);
             String old_jarcanon = istream.readUTF();
             long old_mtime = istream.readLong();
             if ((!old_jarcanon.equals(jarcanon)) || (old_mtime != mtime)) {
@@ -366,38 +378,94 @@ public abstract class CachedJarsPackageManager extends PackageManager {
                 while (true) {
                     String packageName = istream.readUTF();
                     String classes = istream.readUTF();
+                    // XXX: Handle multiple chunks of classes and concatenate them
+                    // together. Multiple chunks were added in 2.5.2 (for #1595) in this
+                    // way to maintain compatibility with the pre 2.5.2 format. In the
+                    // future we should consider changing the cache format to prepend a
+                    // count of chunks to avoid this check
+                    if (packs.containsKey(packageName)) {
+                        classes = packs.get(packageName) + classes;
+                    }
                     packs.put(packageName, classes);
                 }
             } catch (EOFException eof) {
-                ;
+                //ignore
             }
-            istream.close();
 
             return packs;
         } catch (IOException ioe) {
             // if (cachefile.exists()) cachefile.delete();
             return null;
+        } finally {
+            if (istream != null) {
+                try {
+                    istream.close();
+                } catch (IOException ignore) {
+                    //ignore
+                }
+            }
         }
     }
 
     // Write a cache file storing package info for a single .jar
     private void writeCacheFile(JarXEntry entry, String jarcanon,
             Map<String,String> zipPackages, boolean brandNew) {
+        DataOutputStream ostream = null;
         try {
-            DataOutputStream ostream = outCreateCacheFile(entry, brandNew);
+            ostream = outCreateCacheFile(entry, brandNew);
             ostream.writeUTF(jarcanon);
             ostream.writeLong(entry.mtime);
             comment("rewriting cachefile for '" + jarcanon + "'");
 
             for (Entry<String,String> kv : zipPackages.entrySet()) {
                 String classes = kv.getValue();
-                ostream.writeUTF(kv.getKey());
-                ostream.writeUTF(classes);
+                // Make sure each package is not larger than 64k
+                for (String part : splitString(classes, 65535)) {
+                    // For each chunk, write the package name followed by the classes. 
+                    ostream.writeUTF(kv.getKey());
+                    ostream.writeUTF(part);
+                }
             }
-            ostream.close();
         } catch (IOException ioe) {
             warning("can't write cache file for '" + jarcanon + "'");
+        } finally {
+            if (ostream != null) {
+                try {
+                    ostream.close();
+                } catch (IOException ignore) {
+                    //ignore
+                }
+            }
         }
+    }
+
+    /**
+     * Split up a string into several chunks based on a certain size
+     * 
+     *  The writeCacheFile method will use the writeUTF method on a
+     *  DataOutputStream which only allows writing 64k chunks, so use 
+     *  this utility method to split it up
+     * 
+     * @param str - The string to split up into chunks
+     * @param maxLength - The max size a string should be
+     * @return - An array of strings, each of which will not be larger than maxLength
+     */
+    protected static String[] splitString(String str, int maxLength) {
+        if (str == null) {
+            return null;
+        }
+
+        int len = str.length();
+        if (len <= maxLength) {
+            return new String[] {str};
+        }
+
+        int chunkCount = (int) Math.ceil((float) len / maxLength);
+        String[] chunks = new String[chunkCount];
+        for (int i = 0; i < chunkCount; i++) {
+            chunks[i] = str.substring(i * maxLength, Math.min(i * maxLength + maxLength, len));
+        }
+        return chunks;
     }
 
     /**
@@ -408,8 +476,9 @@ public abstract class CachedJarsPackageManager extends PackageManager {
         this.indexModified = false;
         this.jarfiles = Generic.map();
 
+        DataInputStream istream = null;
         try {
-            DataInputStream istream = inOpenIndex();
+            istream = inOpenIndex();
             if (istream == null) {
                 return;
             }
@@ -422,13 +491,19 @@ public abstract class CachedJarsPackageManager extends PackageManager {
                     this.jarfiles.put(jarcanon, new JarXEntry(cachefile, mtime));
                 }
             } catch (EOFException eof) {
-                ;
+                //ignore
             }
-            istream.close();
         } catch (IOException ioe) {
             warning("invalid index file");
+        } finally {
+            if (istream != null) {
+                try {
+                    istream.close();
+                } catch (IOException ignore) {
+                    //ignore
+                }
+            }
         }
-
     }
 
     /**
@@ -444,8 +519,9 @@ public abstract class CachedJarsPackageManager extends PackageManager {
 
         comment("writing modified index file");
 
+        DataOutputStream ostream = null;
         try {
-            DataOutputStream ostream = outOpenIndex();
+            ostream = outOpenIndex();
             for (Entry<String,JarXEntry> entry : jarfiles.entrySet()) {
                 String jarcanon = entry.getKey();
                 JarXEntry xentry = entry.getValue();
@@ -453,9 +529,16 @@ public abstract class CachedJarsPackageManager extends PackageManager {
                 ostream.writeUTF(xentry.cachefile);
                 ostream.writeLong(xentry.mtime);
             }
-            ostream.close();
         } catch (IOException ioe) {
             warning("can't write index file");
+        } finally {
+            if (ostream != null) {
+                try {
+                    ostream.close();
+                } catch (IOException ignore) {
+                    //ignore
+                }
+            }
         }
     }
 

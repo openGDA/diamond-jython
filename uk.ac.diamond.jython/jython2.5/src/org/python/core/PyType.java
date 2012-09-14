@@ -9,6 +9,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import org.python.expose.ExposeAsSuperclass;
 import org.python.expose.ExposedDelete;
@@ -21,10 +22,12 @@ import org.python.expose.TypeBuilder;
 import org.python.modules._weakref.WeakrefModule;
 import org.python.util.Generic;
 
+import com.google.common.collect.MapMaker;
+
 /**
  * The Python Type object implementation.
  */
-@ExposedType(name = "type")
+@ExposedType(name = "type", doc = BuiltinDocs.type_doc)
 public class PyType extends PyObject implements Serializable {
 
     public static PyType TYPE = fromClass(PyType.class);
@@ -62,9 +65,10 @@ public class PyType extends PyObject implements Serializable {
     /** Whether new instances of this type can be instantiated */
     protected boolean instantiable = true;
 
-    /** Whether this type has set/delete descriptors */
-    boolean has_set;
-    boolean has_delete;
+    /** Whether this type implements descriptor __get/set/delete__ methods. */
+    boolean hasGet;
+    boolean hasSet;
+    boolean hasDelete;
 
     /** Whether this type allows subclassing. */
     private boolean isBaseType = true;
@@ -78,15 +82,25 @@ public class PyType extends PyObject implements Serializable {
     /** Whether finalization is required for this type's instances (implements __del__). */
     private boolean needs_finalizer;
 
+    /** Whether this type's __getattribute__ is object.__getattribute__. */
+    private volatile boolean usesObjectGetattribute;
+
+    /** MethodCacheEntry version tag. */
+    private volatile Object versionTag = new Object();
+
     /** The number of __slots__ defined. */
     private int numSlots;
 
-    private ReferenceQueue<PyType> subclasses_refq = new ReferenceQueue<PyType>();
+    private transient ReferenceQueue<PyType> subclasses_refq = new ReferenceQueue<PyType>();
     private Set<WeakReference<PyType>> subclasses = Generic.set();
+
+    /** Global mro cache. */
+    private static final MethodCache methodCache = new MethodCache();
 
     /** Mapping of Java classes to their PyTypes. */
     private static Map<Class<?>, PyType> class_to_type;
-
+    private static Set<PyType> exposedTypes;
+    
     /** Mapping of Java classes to their TypeBuilders. */
     private static Map<Class<?>, TypeBuilder> classToBuilder;
 
@@ -110,7 +124,15 @@ public class PyType extends PyObject implements Serializable {
                                         PyObject[] args, String[] keywords) {
         // Special case: type(x) should return x.getType()
         if (args.length == 1 && keywords.length == 0) {
-            return args[0].getType();
+            PyObject obj = args[0];
+            PyType objType = obj.getType();
+
+            // special case for PyStringMap so that it types as a dict
+            PyType psmType = PyType.fromClass(PyStringMap.class);
+            if (objType == psmType) {
+                return PyDictionary.TYPE;
+            }
+            return objType;
         }
         // If that didn't trigger, we need 3 arguments. but ArgParser below may give a msg
         // saying type() needs exactly 3.
@@ -134,11 +156,10 @@ public class PyType extends PyObject implements Serializable {
         PyType winner = findMostDerivedMetatype(tmpBases, metatype);
 
         if (winner != metatype) {
-            PyObject winner_new_ = winner.lookup("__new__");
-            if (winner_new_ != null && winner_new_ != new_) {
-                return invoke_new_(new_, winner, false,
-                                   new PyObject[] {new PyString(name), bases, dict},
-                                   Py.NoKeywords);
+            PyObject winnerNew = winner.lookup("__new__");
+            if (winnerNew != null && winnerNew != new_) {
+                return invokeNew(winnerNew, winner, false,
+                                 new PyObject[] {new PyString(name), bases, dict}, Py.NoKeywords);
             }
             metatype = winner;
         }
@@ -182,6 +203,7 @@ public class PyType extends PyObject implements Serializable {
 
         type.createAllSlots(!base.needs_userdict, !base.needs_weakref);
         type.ensureAttributes();
+        type.invalidateMethodCache();
 
         for (PyObject cur : type.bases) {
             if (cur instanceof PyType)
@@ -274,14 +296,20 @@ public class PyType extends PyObject implements Serializable {
         if (wantWeak) {
             createWeakrefSlot();
         }
-        needs_finalizer = lookup("__del__") != null;
+        needs_finalizer = lookup_mro("__del__") != null;
     }
 
     /**
      * Create the __dict__ descriptor.
      */
     private void createDictSlot() {
-        dict.__setitem__("__dict__", new PyDataDescr(this, "__dict__", PyObject.class) {
+        String doc = "dictionary for instance variables (if defined)";
+        dict.__setitem__("__dict__", new PyDataDescr(this, "__dict__", PyObject.class, doc) {
+                @Override
+                public boolean implementsDescrGet() {
+                    return true;
+                }
+
                 @Override
                 public Object invokeGet(PyObject obj) {
                     return obj.getDict();
@@ -314,13 +342,19 @@ public class PyType extends PyObject implements Serializable {
      * Create the __weakref__ descriptor.
      */
     private void createWeakrefSlot() {
-        dict.__setitem__("__weakref__", new PyDataDescr(this, "__weakref__", PyObject.class) {
+        String doc = "list of weak references to the object (if defined)";
+        dict.__setitem__("__weakref__", new PyDataDescr(this, "__weakref__", PyObject.class, doc) {
                 private static final String writeMsg =
                         "attribute '%s' of '%s' objects is not writable";
 
                 private void notWritable(PyObject obj) {
                     throw Py.AttributeError(String.format(writeMsg, "__weakref__",
                                                           obj.getType().fastGetName()));
+                }
+
+                @Override
+                public boolean implementsDescrGet() {
+                    return true;
                 }
 
                 @Override
@@ -379,7 +413,7 @@ public class PyType extends PyObject implements Serializable {
 
         // Calculate method resolution order
         mro_internal();
-        fillHasSetAndDelete();
+        cacheDescrBinds();
     }
 
     /**
@@ -425,24 +459,19 @@ public class PyType extends PyObject implements Serializable {
         }
     }
 
-    private static PyObject invoke_new_(PyObject new_, PyType type, boolean init, PyObject[] args,
-                                        String[] keywords) {
-        PyObject newobj;
+    private static PyObject invokeNew(PyObject new_, PyType type, boolean init, PyObject[] args,
+                                      String[] keywords) {
+        PyObject obj;
         if (new_ instanceof PyNewWrapper) {
-            newobj = ((PyNewWrapper)new_).new_impl(init, type, args, keywords);
+            obj = ((PyNewWrapper)new_).new_impl(init, type, args, keywords);
         } else {
             int n = args.length;
-            PyObject[] type_prepended = new PyObject[n + 1];
-            System.arraycopy(args, 0, type_prepended, 1, n);
-            type_prepended[0] = type;
-            newobj = new_.__get__(null, type).__call__(type_prepended, keywords);
+            PyObject[] typePrepended = new PyObject[n + 1];
+            System.arraycopy(args, 0, typePrepended, 1, n);
+            typePrepended[0] = type;
+            obj = new_.__get__(null, type).__call__(typePrepended, keywords);
         }
-        // special case type(x)
-        if (type == TYPE && args.length == 1 && keywords.length == 0) {
-            return newobj;
-        }
-        newobj.dispatch__init__(type, args, keywords);
-        return newobj;
+        return obj;
     }
 
     /**
@@ -473,9 +502,25 @@ public class PyType extends PyObject implements Serializable {
         TypeBuilder builder = classToBuilder.get(underlying_class);
         name = builder.getName();
         dict = builder.getDict(this);
+        String doc = builder.getDoc();
+        // XXX: Can't create a __doc__ str until the PyBaseString/PyString types are
+        // created
+        if (dict.__finditem__("__doc__") == null && forClass != PyBaseString.class
+            && forClass != PyString.class) {
+            PyObject docObj;
+            if (doc != null) {
+                docObj = new PyString(doc);
+            } else {
+                // XXX: Hack: Py.None may be null during bootstrapping. Most types
+                // encountered then should have docstrings anyway
+                docObj = Py.None == null ? new PyString() : Py.None;
+            }
+            dict.__setitem__("__doc__", docObj);
+        }
         setIsBaseType(builder.getIsBaseType());
+        needs_userdict = dict.__finditem__("__dict__") != null;
         instantiable = dict.__finditem__("__new__") != null;
-        fillHasSetAndDelete();
+        cacheDescrBinds();
     }
 
     /**
@@ -483,16 +528,21 @@ public class PyType extends PyObject implements Serializable {
      * followed by the mro of baseClass.
      */
     protected void computeLinearMro(Class<?> baseClass) {
-        base = PyType.fromClass(baseClass);
+        base = PyType.fromClass(baseClass, false);
         mro = new PyType[base.mro.length + 1];
         System.arraycopy(base.mro, 0, mro, 1, base.mro.length);
         mro[0] = this;
         bases = new PyObject[] {base};
     }
 
-    private void fillHasSetAndDelete() {
-        has_set = lookup("__set__") != null;
-        has_delete = lookup("__delete__") != null;
+    
+    /**
+     * Determine if this type is a descriptor, and if so what kind.
+     */
+    private void cacheDescrBinds() {
+        hasGet = lookup_mro("__get__") != null;
+        hasSet = lookup_mro("__set__") != null;
+        hasDelete = lookup_mro("__delete__") != null;
     }
 
     public PyObject getStatic() {
@@ -583,7 +633,7 @@ public class PyType extends PyObject implements Serializable {
                                                     dict);
         javaProxy = proxyClass;
 
-        PyType proxyType = PyType.fromClass(proxyClass);
+        PyType proxyType = PyType.fromClass(proxyClass, false);
         List<PyObject> cleanedBases = Generic.list();
         boolean addedProxyType = false;
         for (PyObject base : bases) {
@@ -612,7 +662,6 @@ public class PyType extends PyObject implements Serializable {
         bases = cleanedBases.toArray(new PyObject[cleanedBases.size()]);
     }
 
-    //XXX: needs __doc__
     @ExposedGet(name = "__base__")
     public PyObject getBase() {
         if (base == null)
@@ -620,7 +669,6 @@ public class PyType extends PyObject implements Serializable {
         return base;
     }
 
-    //XXX: needs __doc__
     @ExposedGet(name = "__bases__")
     public PyObject getBases() {
         return new PyTuple(bases);
@@ -685,6 +733,7 @@ public class PyType extends PyObject implements Serializable {
             mro = savedMro;
             throw t;
         }
+        postSetattr("__getattribute__");
     }
 
     private void setIsBaseType(boolean isBaseType) {
@@ -870,6 +919,7 @@ public class PyType extends PyObject implements Serializable {
 
     PyObject[] computeMro(MROMergeState[] toMerge, List<PyObject> mro) {
         boolean addedProxy = false;
+        PyType proxyAsType = javaProxy == null ? null : PyType.fromClass(((Class<?>)javaProxy), false);
         scan : for (int i = 0; i < toMerge.length; i++) {
             if (toMerge[i].isMerged()) {
                 continue scan;
@@ -890,14 +940,16 @@ public class PyType extends PyObject implements Serializable {
                 // This exposes the methods from the proxy generated for this class in addition to
                 // those generated for the superclass while allowing methods from the superclass to
                 // remain visible from the proxies.
+                mro.add(proxyAsType);
                 addedProxy = true;
-                mro.add(PyType.fromClass(((Class<?>)javaProxy)));
             }
             mro.add(candidate);
+            // Was that our own proxy?
+            addedProxy |= candidate == proxyAsType;
             for (MROMergeState element : toMerge) {
                 element.noteMerged(candidate);
             }
-            i = -1;// restart scan
+            i = -1; // restart scan
         }
         for (MROMergeState mergee : toMerge) {
             if (!mergee.isMerged()) {
@@ -1038,17 +1090,50 @@ public class PyType extends PyObject implements Serializable {
     }
 
     /**
-     * INTERNAL lookup for name through mro objects' dicts
+     * Attribute lookup for name through mro objects' dicts. Lookups are cached.
      *
-     * @param name
-     *            attribute name (must be interned)
+     * @param name attribute name (must be interned)
      * @return found object or null
      */
     public PyObject lookup(String name) {
         return lookup_where(name, null);
     }
 
+    /**
+     * Attribute lookup for name directly through mro objects' dicts. This isn't cached,
+     * and should generally only be used during the bootstrapping of a type.
+     *
+     * @param name attribute name (must be interned)
+     * @return found object or null
+     */
+    protected PyObject lookup_mro(String name) {
+        return lookup_where_mro(name, null);
+    }
+
+    /**
+     * Attribute lookup for name through mro objects' dicts. Lookups are cached.
+     *
+     * Returns where in the mro the attribute was found at where[0].
+     *
+     * @param name attribute name (must be interned)
+     * @param where Where in the mro the attribute was found is written to index 0
+     * @return found object or null
+     */
     public PyObject lookup_where(String name, PyObject[] where) {
+        return methodCache.lookup_where(this, name, where);
+    }
+
+    /**
+     * Attribute lookup for name through mro objects' dicts. This isn't cached, and should
+     * generally only be used during the bootstrapping of a type.
+     *
+     * Returns where in the mro the attribute was found at where[0].
+     *
+     * @param name attribute name (must be interned)
+     * @param where Where in the mro the attribute was found is written to index 0
+     * @return found object or null
+     */
+    protected PyObject lookup_where_mro(String name, PyObject[] where) {
         PyObject[] mro = this.mro;
         if (mro == null) {
             return null;
@@ -1090,7 +1175,7 @@ public class PyType extends PyObject implements Serializable {
         return null;
     }
 
-    public static void addBuilder(Class<?> forClass, TypeBuilder builder) {
+    public synchronized static void addBuilder(Class<?> forClass, TypeBuilder builder) {
         if (classToBuilder == null) {
             classToBuilder = Generic.map();
         }
@@ -1107,15 +1192,19 @@ public class PyType extends PyObject implements Serializable {
         }
     }
 
-    private static PyType addFromClass(Class<?> c, Set<PyJavaType> needsInners) {
+    private synchronized static PyType addFromClass(Class<?> c, Set<PyJavaType> needsInners) {
         if (ExposeAsSuperclass.class.isAssignableFrom(c)) {
-            PyType exposedAs = fromClass(c.getSuperclass());
+            PyType exposedAs = fromClass(c.getSuperclass(), false);
             class_to_type.put(c, exposedAs);
             return exposedAs;
         }
         return createType(c, needsInners);
     }
 
+    static boolean hasBuilder(Class<?> c) {
+        return classToBuilder != null && classToBuilder.containsKey(c);
+    }
+    
     private static TypeBuilder getBuilder(Class<?> c) {
         if (classToBuilder == null) {
             // PyType itself has yet to be initialized.  This should be a bootstrap type, so it'll
@@ -1153,7 +1242,7 @@ public class PyType extends PyObject implements Serializable {
         return builder;
     }
 
-    private static PyType createType(Class<?> c, Set<PyJavaType> needsInners) {
+    private synchronized static PyType createType(Class<?> c, Set<PyJavaType> needsInners) {
         PyType newtype;
         if (c == PyType.class) {
             newtype = new PyType(false);
@@ -1172,20 +1261,30 @@ public class PyType extends PyObject implements Serializable {
 
         class_to_type.put(c, newtype);
         newtype.builtin = true;
-        newtype.init(c,needsInners);
+        newtype.init(c, needsInners);
+        newtype.invalidateMethodCache();
         return newtype;
     }
 
+    // re the synchronization used here: this result is cached in each type obj,
+    // so we just need to prevent data races. all public methods that access class_to_type
+    // are themselves synchronized. However, if we use Google Collections/Guava,
+    // MapMaker only uses ConcurrentMap anyway
+
     public static synchronized PyType fromClass(Class<?> c) {
+        return fromClass(c, true);
+    }
+
+    public static synchronized PyType fromClass(Class<?> c, boolean hardRef) {
         if (class_to_type == null) {
-            class_to_type = Generic.map();
+            class_to_type = new MapMaker().weakKeys().weakValues().makeMap();
             addFromClass(PyType.class, null);
         }
         PyType type = class_to_type.get(c);
         if (type != null) {
             return type;
         }
-        // We haven't seen this class before, so it's type needs to be created. If it's being
+        // We haven't seen this class before, so its type needs to be created. If it's being
         // exposed as a Java class, defer processing its inner types until it's completely
         // created in case the inner class references a class that references this class.
         Set<PyJavaType> needsInners = Generic.set();
@@ -1207,10 +1306,17 @@ public class PyType extends PyObject implements Serializable {
                             || ExposeAsSuperclass.class.isAssignableFrom(inner)) {
                         Py.BOOTSTRAP_TYPES.add(inner);
                     }
-                    javaType.dict.__setitem__(inner.getSimpleName(), PyType.fromClass(inner));
+                    javaType.dict.__setitem__(inner.getSimpleName(), PyType.fromClass(inner, hardRef));
                 }
             }
         }
+        if (hardRef && result != null) {
+            if (exposedTypes == null) {
+                exposedTypes = Generic.set();
+            }
+            exposedTypes.add(result) ;
+        }
+
         return result;
     }
 
@@ -1239,11 +1345,12 @@ public class PyType extends PyObject implements Serializable {
     // name must be interned
     final PyObject type___findattr_ex__(String name) {
         PyType metatype = getType();
-
         PyObject metaattr = metatype.lookup(name);
+        boolean get = false;
 
-        if (metaattr != null && useMetatypeFirst(metaattr)) {
-            if (metaattr.isDataDescr()) {
+        if (metaattr != null) {
+            get = metaattr.implementsDescrGet();
+            if (useMetatypeFirst(metaattr) && get && metaattr.isDataDescr()) {
                 PyObject res = metaattr.__get__(this, metatype);
                 if (res != null)
                     return res;
@@ -1259,8 +1366,12 @@ public class PyType extends PyObject implements Serializable {
             }
         }
 
-        if (metaattr != null) {
+        if (get) {
             return metaattr.__get__(this, metatype);
+        }
+
+        if (metaattr != null) {
+            return metaattr;
         }
 
         return null;
@@ -1309,26 +1420,43 @@ public class PyType extends PyObject implements Serializable {
     }
 
     void postSetattr(String name) {
-        if (name == "__set__") {
-            if (!has_set && lookup("__set__") != null) {
+        invalidateMethodCache();
+        if (name == "__get__") {
+            if (!hasGet && lookup("__get__") != null) {
                 traverse_hierarchy(false, new OnType() {
                     public boolean onType(PyType type) {
-                        boolean old = type.has_set;
-                        type.has_set = true;
+                        boolean old = type.hasGet;
+                        type.hasGet = true;
+                        return old;
+                    }
+                });
+            }
+        } else if (name == "__set__") {
+            if (!hasSet && lookup("__set__") != null) {
+                traverse_hierarchy(false, new OnType() {
+                    public boolean onType(PyType type) {
+                        boolean old = type.hasSet;
+                        type.hasSet = true;
                         return old;
                     }
                 });
             }
         } else if (name == "__delete__") {
-            if (!has_delete && lookup("__delete__") != null) {
+            if (!hasDelete && lookup("__delete__") != null) {
                 traverse_hierarchy(false, new OnType() {
                     public boolean onType(PyType type) {
-                        boolean old = type.has_delete;
-                        type.has_delete = true;
+                        boolean old = type.hasDelete;
+                        type.hasDelete = true;
                         return old;
                     }
                 });
             }
+        } else if (name == "__getattribute__") {
+            traverse_hierarchy(false, new OnType() {
+                    public boolean onType(PyType type) {
+                        return (type.usesObjectGetattribute = false);
+                    }
+                });
         }
     }
 
@@ -1353,15 +1481,28 @@ public class PyType extends PyObject implements Serializable {
         postDelattr(name);
     }
 
-
     void postDelattr(String name) {
-        if (name == "__set__") {
-            if (has_set && lookup("__set__") == null) {
+        invalidateMethodCache();
+        if (name == "__get__") {
+            if (hasGet && lookup("__get__") == null) {
+                traverse_hierarchy(false, new OnType() {
+                    public boolean onType(PyType type) {
+                        boolean absent = type.getDict().__finditem__("__get__") == null;
+                        if (absent) {
+                            type.hasGet = false;
+                            return false;
+                        }
+                        return true;
+                    }
+                });
+            }
+        } else if (name == "__set__") {
+            if (hasSet && lookup("__set__") == null) {
                 traverse_hierarchy(false, new OnType() {
                     public boolean onType(PyType type) {
                         boolean absent = type.getDict().__finditem__("__set__") == null;
                         if (absent) {
-                            type.has_set = false;
+                            type.hasSet = false;
                             return false;
                         }
                         return true;
@@ -1369,19 +1510,38 @@ public class PyType extends PyObject implements Serializable {
                 });
             }
         } else if (name == "__delete__") {
-            if (has_delete && lookup("__delete__") == null) {
+            if (hasDelete && lookup("__delete__") == null) {
                 traverse_hierarchy(false, new OnType() {
                     public boolean onType(PyType type) {
                         boolean absent = type.getDict().__finditem__("__delete__") == null;
                         if (absent) {
-                            type.has_delete = false;
+                            type.hasDelete = false;
                             return false;
                         }
                         return true;
                     }
                 });
             }
+        } else if (name == "__getattribute__") {
+            traverse_hierarchy(false, new OnType() {
+                    public boolean onType(PyType type) {
+                        return (type.usesObjectGetattribute = false);
+                    }
+                });
         }
+    }
+
+    /**
+     * Invalidate this type's MethodCache entries. *Must* be called after any modification
+     * to __dict__ (or anything else affecting attribute lookups).
+     */
+    protected void invalidateMethodCache() {
+        traverse_hierarchy(false, new OnType() {
+                public boolean onType(PyType type) {
+                    type.versionTag = new Object();
+                    return false;
+                }
+            });
     }
 
     public PyObject __call__(PyObject[] args, String[] keywords) {
@@ -1392,9 +1552,18 @@ public class PyType extends PyObject implements Serializable {
     final PyObject type___call__(PyObject[] args, String[] keywords) {
         PyObject new_ = lookup("__new__");
         if (!instantiable || new_ == null) {
-            throw Py.TypeError("cannot create '" + name + "' instances");
+            throw Py.TypeError(String.format("cannot create '%.100s' instances", name));
         }
-        return invoke_new_(new_, this, true, args, keywords);
+
+        PyObject obj = invokeNew(new_, this, true, args, keywords);
+        // When the call was type(something) or the returned object is not an instance of
+        // type, it won't be initialized
+        if ((this == TYPE && args.length == 1 && keywords.length == 0)
+            || !obj.getType().isSubType(this)) {
+            return obj;
+        }
+        obj.dispatch__init__(args, keywords);
+        return obj;
     }
 
     protected void __rawdir__(PyDictionary accum) {
@@ -1433,6 +1602,7 @@ public class PyType extends PyObject implements Serializable {
             throw Py.ValueError("__name__ must not contain null bytes");
         }
         setName(nameStr);
+        invalidateMethodCache();
     }
 
     public void setName(String name) {
@@ -1470,14 +1640,23 @@ public class PyType extends PyObject implements Serializable {
     }
 
     /**
-     * Equivalent of CPython's typeobject type_get_doc; handles __doc__ descriptors.
+     * Equivalent of CPython's typeobject.c::type_get_doc; handles __doc__ descriptors.
      */
+    @ExposedGet(name = "__doc__")
     public PyObject getDoc() {
-        PyObject doc = super.getDoc();
-        if (!builtin && doc != null && doc.getType().lookup("__get__") != null) {
-            return doc.__get__(null, this);
+        PyObject doc = dict.__finditem__("__doc__");
+        if (doc == null) {
+            return Py.None;
         }
-        return doc;
+        return doc.__get__(null, this);
+    }
+
+    boolean getUsesObjectGetattribute() {
+        return usesObjectGetattribute;
+    }
+
+    void setUsesObjectGetattribute(boolean usesObjectGetattribute) {
+        this.usesObjectGetattribute = usesObjectGetattribute;
     }
 
     public Object __tojava__(Class<?> c) {
@@ -1607,7 +1786,7 @@ public class PyType extends PyObject implements Serializable {
 
         private Object readResolve() {
             if (underlying_class != null) {
-                return PyType.fromClass(underlying_class);
+                return PyType.fromClass(underlying_class, false);
             }
             PyObject mod = imp.importName(module.intern(), false);
             PyObject pytyp = mod.__getattr__(name.intern());
@@ -1675,6 +1854,108 @@ public class PyType extends PyObject implements Serializable {
                 }
             }
             mro = newMro.toArray(new PyObject[newMro.size()]);
+        }
+    }
+
+    /**
+     * A thead safe, non-blocking version of Armin Rigo's mro cache.
+     */
+    static class MethodCache {
+
+        /** The fixed size cache. */
+        private final AtomicReferenceArray<MethodCacheEntry> table;
+
+        /** Size of the cache exponent (2 ** SIZE_EXP). */
+        public static final int SIZE_EXP = 11;
+
+        public MethodCache() {
+            table = new AtomicReferenceArray<MethodCacheEntry>(1 << SIZE_EXP);
+            clear();
+        }
+
+        public void clear() {
+            int length = table.length();
+            for (int i = 0; i < length; i++) {
+                table.set(i, MethodCacheEntry.EMPTY);
+            }
+        }
+
+        public PyObject lookup_where(PyType type, String name, PyObject where[]) {
+            Object versionTag = type.versionTag;
+            int index = indexFor(versionTag, name);
+            MethodCacheEntry entry = table.get(index);
+
+            if (entry.isValid(versionTag, name)) {
+                return entry.get(where);
+            }
+
+            // Always cache where
+            if (where == null) {
+                where = new PyObject[1];
+            }
+            PyObject value = type.lookup_where_mro(name, where);
+            if (isCacheableName(name)) {
+                // CAS isn't totally necessary here but is possibly more correct. Cache by
+                // the original version before the lookup, if it's changed since then
+                // we'll cache a bad entry. Bad entries and CAS failures aren't a concern
+                // as subsequent lookups will sort themselves out
+                table.compareAndSet(index, entry, new MethodCacheEntry(versionTag, name, where[0],
+                                                                       value));
+            }
+            return value;
+        }
+
+        /**
+         * Return the table index for type version/name.
+         */
+        private static int indexFor(Object version, String name) {
+            return (version.hashCode() * name.hashCode()) >>> (Integer.SIZE - SIZE_EXP);
+        }
+
+        /**
+         * Determine if name is cacheable.
+         *
+         * Since the cache can keep references to names alive longer than usual, it avoids
+         * caching unusually large strings.
+         */
+        private static boolean isCacheableName(String name) {
+            return name.length() <= 100;
+        }
+
+        static class MethodCacheEntry extends WeakReference<PyObject> {
+
+            /** Version of the entry, a PyType.versionTag. */
+            private final Object version;
+
+            /** The name of the attribute. */
+            private final String name;
+
+            /** Where in the mro the value was found. */
+            private final WeakReference<PyObject> where;
+
+            static final MethodCacheEntry EMPTY = new MethodCacheEntry();
+
+            private MethodCacheEntry() {
+                this(null, null, null, null);
+            }
+
+            public MethodCacheEntry(Object version, String name, PyObject where, PyObject value) {
+                super(value);
+                this.version = version;
+                this.name = name;
+                this.where = new WeakReference<PyObject>(where);
+            }
+
+            public boolean isValid(Object version, String name) {
+                return this.version == version && this.name == name;
+            }
+
+            public PyObject get(PyObject[] where) {
+                if (where != null) {
+                    where[0] = this.where.get();
+                }
+                return get();
+            }
         }
     }
 }

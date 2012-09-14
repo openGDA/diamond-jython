@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: BCP.java 5206 2008-08-19 21:06:39Z fwierzbicki $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -149,8 +148,7 @@ public class BCP extends PyObject implements ClassDictInit {
      * @param dict
      */
     static public void classDictInit(PyObject dict) {
-
-        dict.__setitem__("__version__", Py.newString("$Revision: 5206 $").__getslice__(Py.newInteger(11), Py.newInteger(-2), null));
+        dict.__setitem__("__version__", Py.newString("7290"));
         dict.__setitem__("bcp", new BCPFunc("bcp", 0, 1, 2, zxJDBC.getString("bcp")));
         dict.__setitem__("batchsize", Py.newString(zxJDBC.getString("batchsize")));
         dict.__setitem__("queuesize", Py.newString(zxJDBC.getString("queuesize")));
@@ -188,9 +186,6 @@ public class BCP extends PyObject implements ClassDictInit {
 }
 
 /**
- * @author last modified by $Author: fwierzbicki $
- * @version $Revision: 5206 $
- * @date last modified on $Date: 2008-08-19 17:06:39 -0400 (Tue, 19 Aug 2008) $
  * @copyright 2001 brian zimmer
  */
 class BCPFunc extends PyBuiltinMethodSet {

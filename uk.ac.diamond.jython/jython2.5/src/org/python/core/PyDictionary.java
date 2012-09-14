@@ -1,4 +1,7 @@
-// Copyright (c) Corporation for National Research Initiatives
+/*
+ * Copyright (c) Corporation for National Research Initiatives
+ * Copyright (c) Jython Developers
+ */
 package org.python.core;
 
 import java.util.AbstractSet;
@@ -10,6 +13,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.python.expose.ExposedClassMethod;
 import org.python.expose.ExposedMethod;
@@ -22,45 +26,70 @@ import org.python.util.Generic;
 /**
  * A builtin python dictionary.
  */
-@ExposedType(name = "dict")
+@ExposedType(name = "dict", doc = BuiltinDocs.dict_doc)
 public class PyDictionary extends PyObject implements ConcurrentMap {
 
     public static final PyType TYPE = PyType.fromClass(PyDictionary.class);
 
-    protected final ConcurrentMap<PyObject, PyObject> table;
+    private final ConcurrentMap<PyObject, PyObject> map;
+
+    public ConcurrentMap<PyObject, PyObject> getMap() {
+        return map;
+    }
 
     /**
      * Create an empty dictionary.
      */
     public PyDictionary() {
-        table = Generic.concurrentMap();
+        this(TYPE);
+    }
+
+    /**
+     * Create a dictionary of type with the specified initial capacity.
+     */
+    public PyDictionary(PyType type, int capacity) {
+        super(type);
+        map = new ConcurrentHashMap<PyObject, PyObject>(capacity, Generic.CHM_LOAD_FACTOR,
+                                                          Generic.CHM_CONCURRENCY_LEVEL);
     }
 
     /**
      * For derived types
      */
-    public PyDictionary(PyType subtype) {
-        super(subtype);
-        table = Generic.concurrentMap();
+    public PyDictionary(PyType type) {
+        super(type);
+        map = Generic.concurrentMap();
     }
 
     /**
      * Create a new dictionary which is based on given map.
      */
-    public PyDictionary(Map<PyObject, PyObject> t) {
-        table = Generic.concurrentMap();
-        table.putAll(t);
+    public PyDictionary(Map<PyObject, PyObject> map) {
+        this(TYPE, map);
     }
 
     /**
-     * Create a new derived dictionary which is based on the given map.
+     * Create a new dictionary which is populated with entries the given map.
      */
-    public PyDictionary(PyType subtype, Map<PyObject, PyObject> t) {
-        super(subtype);
-        table = Generic.concurrentMap();
-        table.putAll(t);
+    public PyDictionary(PyType type, Map<PyObject, PyObject> map) {
+        this(type, Math.max((int) (map.size() / Generic.CHM_LOAD_FACTOR) + 1,
+                            Generic.CHM_INITIAL_CAPACITY));
+        this.map.putAll(map);
     }
 
+    /**
+     * Create a new dictionary without initializing table. Used for dictionary
+     * factories, with different backing maps, at the cost that it prevents us from making table be final.
+     */
+    // TODO we may want to revisit this API, but our chain calling of super makes this tough
+    protected PyDictionary(PyType type, boolean initializeBacking) {
+        super(type);
+        if (initializeBacking) {
+            map = Generic.concurrentMap();
+        } else {
+            map = null; // for later initialization
+        }
+    }
 
     /**
      * Create a new dictionary with the element as content.
@@ -71,8 +100,8 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
      */
     public PyDictionary(PyObject elements[]) {
         this();
-        for (int i = 0; i < elements.length; i+=2) {
-            table.put(elements[i], elements[i+1]);
+        for (int i = 0; i < elements.length; i += 2) {
+            map.put(elements[i], elements[i + 1]);
         }
     }
 
@@ -90,8 +119,8 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         return dict_fromkeys(TYPE, keys, value);
     }
 
-    @ExposedClassMethod(defaults = "Py.None")
-    final static PyObject dict_fromkeys(PyType type, PyObject keys, PyObject value) {
+    @ExposedClassMethod(defaults = "Py.None", doc = BuiltinDocs.dict_fromkeys_doc)
+    static PyObject dict_fromkeys(PyType type, PyObject keys, PyObject value) {
         PyObject d = type.__call__();
         for (PyObject o : keys.asIterable()) {
             d.__setitem__(o, value);
@@ -99,36 +128,34 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         return d;
     }
 
+    @Override
     public int __len__() {
         return dict___len__();
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict___len___doc)
     final int dict___len__() {
-        return table.size();
+        return getMap().size();
     }
 
+    @Override
     public boolean __nonzero__() {
-        return dict___nonzero__();
+        return getMap().size() != 0;
     }
 
-    //XXX: CPython's dict does not define __nonzero__
-    @ExposedMethod
-    final boolean dict___nonzero__() {
-        return table.size() != 0;
-    }
-
+    @Override
     public PyObject __finditem__(int index) {
         throw Py.TypeError("loop over non-sequence");
     }
 
+    @Override
     public PyObject __finditem__(PyObject key) {
-        return table.get(key);
+        return getMap().get(key);
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict___getitem___doc)
     protected final PyObject dict___getitem__(PyObject key) {
-        PyObject result = table.get(key);
+        PyObject result = getMap().get(key);
         if (result != null) {
             return result;
         }
@@ -144,26 +171,30 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         throw Py.KeyError(key);
     }
 
+    @Override
     public void __setitem__(PyObject key, PyObject value) {
-        dict___setitem__(key,value);
+        dict___setitem__(key, value);
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict___setitem___doc)
     final void dict___setitem__(PyObject key, PyObject value)  {
-        table.put(key, value);
+        getMap().put(key, value);
     }
 
+    @Override
     public void __delitem__(PyObject key) {
         dict___delitem__(key);
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict___delitem___doc)
     final void dict___delitem__(PyObject key) {
-        Object ret = table.remove(key);
-        if (ret == null)
+        Object ret = getMap().remove(key);
+        if (ret == null) {
             throw Py.KeyError(key.toString());
+        }
     }
 
+    @Override
     public PyObject __iter__() {
         return dict___iter__();
     }
@@ -173,6 +204,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         return iterkeys();
     }
 
+    @Override
     public String toString() {
         return dict_toString();
     }
@@ -185,14 +217,13 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         }
 
         StringBuilder buf = new StringBuilder("{");
-
-        for (Entry<PyObject, PyObject> entry : table.entrySet()) {
+        for (Entry<PyObject, PyObject> entry : getMap().entrySet()) {
             buf.append((entry.getKey()).__repr__().toString());
             buf.append(": ");
             buf.append((entry.getValue()).__repr__().toString());
             buf.append(", ");
         }
-        if(buf.length() > 1){
+        if (buf.length() > 1) {
             buf.delete(buf.length() - 2, buf.length());
         }
         buf.append("}");
@@ -201,101 +232,113 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         return buf.toString();
     }
 
-    public PyObject __eq__(PyObject ob_other) {
-        return dict___eq__(ob_other);
+    @Override
+    public PyObject __eq__(PyObject otherObj) {
+        return dict___eq__(otherObj);
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___eq___doc)
-    final PyObject dict___eq__(PyObject ob_other) {
+    final PyObject dict___eq__(PyObject otherObj) {
         PyType thisType = getType();
-        PyType otherType = ob_other.getType();
+        PyType otherType = otherObj.getType();
         if (otherType != thisType && !thisType.isSubType(otherType)
                 && !otherType.isSubType(thisType)) {
             return null;
         }
-        PyDictionary other = (PyDictionary)ob_other;
-        int an = table.size();
-        int bn = other.table.size();
-        if (an != bn)
+        PyDictionary other = (PyDictionary)otherObj;
+        int an = getMap().size();
+        int bn = other.getMap().size();
+        if (an != bn) {
             return Py.False;
+        }
 
         PyList akeys = keys();
-        for (int i=0; i<an; i++) {
+        for (int i = 0; i < an; i++) {
             PyObject akey = akeys.pyget(i);
             PyObject bvalue = other.__finditem__(akey);
-            if (bvalue == null)
+            if (bvalue == null) {
                 return Py.False;
+            }
             PyObject avalue = __finditem__(akey);
-            if (!avalue._eq(bvalue).__nonzero__())
+            if (!avalue._eq(bvalue).__nonzero__()) {
                 return Py.False;
+            }
         }
         return Py.True;
     }
 
-    public PyObject __ne__(PyObject ob_other) {
-        return dict___ne__(ob_other);
+    @Override
+    public PyObject __ne__(PyObject otherObj) {
+        return dict___ne__(otherObj);
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___ne___doc)
-    final PyObject dict___ne__(PyObject ob_other) {
-        PyObject eq_result = __eq__(ob_other);
-        if (eq_result == null) return null;
+    final PyObject dict___ne__(PyObject otherObj) {
+        PyObject eq_result = __eq__(otherObj);
+        if (eq_result == null) {
+            return null;
+        }
         return eq_result.__not__();
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___lt___doc)
-    final PyObject dict___lt__(PyObject ob_other){
-    	int result = __cmp__(ob_other);
-    	if(result == -2){
+    final PyObject dict___lt__(PyObject otherObj) {
+    	int result = __cmp__(otherObj);
+    	if (result == -2) {
     		return null;
     	}
     	return result < 0 ? Py.True : Py.False;
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___gt___doc)
-    final PyObject dict___gt__(PyObject ob_other){
-    	int result = __cmp__(ob_other);
-    	if(result == -2){
+    final PyObject dict___gt__(PyObject otherObj) {
+    	int result = __cmp__(otherObj);
+    	if (result == -2) {
     		return null;
     	}
     	return result > 0 ? Py.True : Py.False;
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___le___doc)
-    final PyObject dict___le__(PyObject ob_other){
-    	int result = __cmp__(ob_other);
-    	if(result == -2){
+    final PyObject dict___le__(PyObject otherObj) {
+    	int result = __cmp__(otherObj);
+    	if (result == -2) {
     		return null;
     	}
     	return result <= 0 ? Py.True : Py.False;
     }
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.dict___ge___doc)
-    final PyObject dict___ge__(PyObject ob_other){
-    	int result = __cmp__(ob_other);
-    	if(result == -2){
+    final PyObject dict___ge__(PyObject otherObj) {
+    	int result = __cmp__(otherObj);
+    	if (result == -2) {
     		return null;
     	}
     	return result >= 0 ? Py.True : Py.False;
     }
 
-    public int __cmp__(PyObject ob_other) {
-        return dict___cmp__(ob_other);
+    @Override
+    public int __cmp__(PyObject otherObj) {
+        return dict___cmp__(otherObj);
     }
 
     @ExposedMethod(type = MethodType.CMP, doc = BuiltinDocs.dict___cmp___doc)
-    final int dict___cmp__(PyObject ob_other) {
+    final int dict___cmp__(PyObject otherObj) {
         PyType thisType = getType();
-        PyType otherType = ob_other.getType();
+        PyType otherType = otherObj.getType();
         if (otherType != thisType && !thisType.isSubType(otherType)
                 && !otherType.isSubType(thisType)) {
             return -2;
         }
-        PyDictionary other = (PyDictionary)ob_other;
-        int an = table.size();
-        int bn = other.table.size();
-        if (an < bn) return -1;
-        if (an > bn) return 1;
+        PyDictionary other = (PyDictionary)otherObj;
+        int an = getMap().size();
+        int bn = other.getMap().size();
+        if (an < bn) {
+            return -1;
+        }
+        if (an > bn) {
+            return 1;
+        }
 
         PyList akeys = keys();
         PyList bkeys = other.keys();
@@ -303,26 +346,28 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         akeys.sort();
         bkeys.sort();
 
-        for (int i=0; i<bn; i++) {
+        for (int i = 0; i < bn; i++) {
             PyObject akey = akeys.pyget(i);
             PyObject bkey = bkeys.pyget(i);
             int c = akey._cmp(bkey);
-            if (c != 0)
+            if (c != 0) {
                 return c;
+            }
 
             PyObject avalue = __finditem__(akey);
             PyObject bvalue = other.__finditem__(bkey);
-            if(avalue == null){
-                if(bvalue == null){
+            if (avalue == null) {
+                if (bvalue == null) {
                     continue;
                 }
                 return -3;
-            }else if(bvalue == null){
+            } else if (bvalue == null) {
                 return -3;
             }
             c = avalue._cmp(bvalue);
-            if (c != 0)
+            if (c != 0) {
                 return c;
+            }
         }
         return 0;
     }
@@ -336,9 +381,10 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_has_key_doc)
     final boolean dict_has_key(PyObject key) {
-        return table.containsKey(key);
+        return getMap().containsKey(key);
     }
 
+    @Override
     public boolean __contains__(PyObject o) {
         return dict___contains__(o);
     }
@@ -349,24 +395,20 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
     }
 
     /**
-     * Return this[key] if the key exists in the mapping, default_object
-     * is returned otherwise.
+     * Return this[key] if the key exists in the mapping, defaultObj is returned
+     * otherwise.
      *
-     * @param key            the key to lookup in the dictionary.
-     * @param default_object the value to return if the key does not
-     *                       exists in the mapping.
+     * @param key the key to lookup in the dictionary.
+     * @param defaultObj the value to return if the key does not exists in the mapping.
      */
-    public PyObject get(PyObject key, PyObject default_object) {
-        return dict_get(key,default_object);
+    public PyObject get(PyObject key, PyObject defaultObj) {
+        return dict_get(key, defaultObj);
     }
 
     @ExposedMethod(defaults = "Py.None", doc = BuiltinDocs.dict_get_doc)
-    final PyObject dict_get(PyObject key, PyObject default_object) {
-        PyObject o = table.get(key);
-        if (o == null)
-            return default_object;
-        else
-            return o;
+    final PyObject dict_get(PyObject key, PyObject defaultObj) {
+        PyObject o = getMap().get(key);
+        return o == null ? defaultObj : o;
     }
 
     /**
@@ -388,7 +430,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_copy_doc)
     final PyDictionary dict_copy() {
-        return new PyDictionary(table); // no need to clone()
+        return new PyDictionary(getMap()); // no need to clone()
     }
 
     /**
@@ -400,7 +442,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_clear_doc)
     final void dict_clear() {
-        table.clear();
+        getMap().clear();
     }
 
     /**
@@ -439,8 +481,8 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         }
     }
 
-    private void merge(Map<Object,Object> other) {
-        for (Entry<Object,Object> entry : other.entrySet()) {
+    private void merge(Map<Object, Object> other) {
+        for (Entry<Object, Object> entry : other.entrySet()) {
             dict___setitem__(Py.java2py(entry.getKey()), Py.java2py(entry.getValue()));
         }
     }
@@ -454,7 +496,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
      */
     private void merge(PyObject other) {
         if (other instanceof PyDictionary) {
-            table.putAll(((PyDictionary)other).table);
+            getMap().putAll(((PyDictionary) other).getMap());
         } else if (other instanceof PyStringMap) {
             mergeFromKeys(other, ((PyStringMap)other).keys());
         } else {
@@ -522,29 +564,20 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
      *                if key does not already exist.
      */
     public PyObject setdefault(PyObject key, PyObject failobj) {
-        return dict_setdefault(key,failobj);
+        return dict_setdefault(key, failobj);
     }
 
-    //XXX: needs __doc__ but CPython does not define setdefault
-    @ExposedMethod(defaults = "Py.None")
+    @ExposedMethod(defaults = "Py.None", doc = BuiltinDocs.dict_setdefault_doc)
     final PyObject dict_setdefault(PyObject key, PyObject failobj) {
-        PyObject oldValue = table.putIfAbsent(key, failobj);
-        if (oldValue == null) {
-            return failobj;
-        } else {
-            return oldValue;
-        }
+        PyObject oldValue = getMap().putIfAbsent(key, failobj);
+        return oldValue == null ? failobj : oldValue;
     }
 
-    //XXX: needs __doc__ but CPython does not define setifabsent
+    // XXX: needs __doc__ but CPython does not define setifabsent
     @ExposedMethod(defaults = "Py.None")
     final PyObject dict_setifabsent(PyObject key, PyObject failobj) {
-        PyObject oldValue = table.putIfAbsent(key, failobj);
-        if (oldValue == null) {
-            return Py.None;
-        } else {
-            return oldValue;
-        }
+        PyObject oldValue = getMap().putIfAbsent(key, failobj);
+        return oldValue == null ? Py.None : oldValue;
     }
 
 
@@ -566,13 +599,13 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(defaults = "null", doc = BuiltinDocs.dict_pop_doc)
     final PyObject dict_pop(PyObject key, PyObject defaultValue) {
-        if (!table.containsKey(key)) {
+        if (!map.containsKey(key)) {
             if (defaultValue == null) {
                 throw Py.KeyError("popitem(): dictionary is empty");
             }
             return defaultValue;
         }
-        return table.remove(key);
+        return getMap().remove(key);
     }
 
 
@@ -586,9 +619,10 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_popitem_doc)
     final PyObject dict_popitem() {
-        Iterator<Entry<PyObject, PyObject>> it = table.entrySet().iterator();
-        if (!it.hasNext())
+        Iterator<Entry<PyObject, PyObject>> it = getMap().entrySet().iterator();
+        if (!it.hasNext()) {
             throw Py.KeyError("popitem(): dictionary is empty");
+        }
         Entry<PyObject, PyObject> entry = it.next();
         PyTuple tuple = new PyTuple(entry.getKey(), entry.getValue());
         it.remove();
@@ -605,11 +639,11 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_items_doc)
     final PyList dict_items() {
-        List<PyObject> list = new ArrayList<PyObject>(table.size());
-        for (Entry<PyObject, PyObject> entry : table.entrySet()) {
+        List<PyObject> list = new ArrayList<PyObject>(getMap().size());
+        for (Entry<PyObject, PyObject> entry : getMap().entrySet()) {
             list.add(new PyTuple(entry.getKey(), entry.getValue()));
         }
-        return new PyList(list);
+        return PyList.fromList(list);
     }
 
     /**
@@ -621,12 +655,12 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_keys_doc)
     final PyList dict_keys() {
-        return new PyList(new ArrayList<PyObject>(table.keySet()));
+        return PyList.fromList(new ArrayList<PyObject>(getMap().keySet()));
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict_values_doc)
     final PyList dict_values() {
-        return new PyList(new ArrayList<PyObject>(table.values()));
+        return PyList.fromList(new ArrayList<PyObject>(getMap().values()));
     }
 
     /**
@@ -638,7 +672,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_iteritems_doc)
     final PyObject dict_iteritems() {
-        return new ItemsIter(table.entrySet());
+        return new ItemsIter(getMap().entrySet());
     }
 
     /**
@@ -650,7 +684,7 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_iterkeys_doc)
     final PyObject dict_iterkeys() {
-        return new ValuesIter(table.keySet());
+        return new ValuesIter(getMap().keySet());
     }
 
     /**
@@ -662,11 +696,27 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 
     @ExposedMethod(doc = BuiltinDocs.dict_itervalues_doc)
     final PyObject dict_itervalues() {
-        return new ValuesIter(table.values());
+        return new ValuesIter(getMap().values());
     }
 
+    @Override
     public int hashCode() {
         return dict___hash__();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        if (getClass() != obj.getClass()) {
+            return false;
+        }
+        final PyDictionary other = (PyDictionary) obj;
+        if (this.map != other.map && (this.map == null || !this.map.equals(other.map))) {
+            return false;
+        }
+        return true;
     }
 
     @ExposedMethod(doc = BuiltinDocs.dict___hash___doc)
@@ -674,6 +724,12 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
         throw Py.TypeError(String.format("unhashable type: '%.200s'", getType().fastGetName()));
     }
 
+    @Override
+    public boolean isMappingType() {
+        return true;
+    }
+
+    @Override
     public boolean isSequenceType() {
         return false;
     }
@@ -689,8 +745,9 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
             size = values.size();
         }
 
+        @Override
         public PyObject __iternext__() {
-            if (table.size() != size) {
+            if (getMap().size() != size) {
                 throw Py.RuntimeError("dictionary changed size during iteration");
             }
             if (!iterator.hasNext()) {
@@ -711,8 +768,9 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
             size = items.size();
         }
 
+        @Override
         public PyObject __iternext__() {
-            if (table.size() != size) {
+            if (getMap().size() != size) {
                 throw Py.RuntimeError("dictionary changed size during iteration");
             }
             if (!iterator.hasNext()) {
@@ -731,81 +789,81 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
      */
     /** @see java.util.Map#entrySet() */
     public Set entrySet() {
-        return new PyMapEntrySet(table.entrySet());
+        return new PyMapEntrySet(getMap().entrySet());
     }
 
     /** @see java.util.Map#keySet() */
     public Set keySet() {
-        return new PyMapKeyValSet(table.keySet());
+        return new PyMapKeyValSet(getMap().keySet());
     }
 
     /** @see java.util.Map#values() */
     public Collection values() {
-        return new PyMapKeyValSet(table.values());
+        return new PyMapKeyValSet(getMap().values());
     }
 
     /** @see java.util.Map#putAll(Map map) */
     public void putAll(Map map) {
         for (Object o : map.entrySet()) {
             Entry entry = (Entry)o;
-            table.put(Py.java2py(entry.getKey()), Py.java2py(entry.getValue()));
+            getMap().put(Py.java2py(entry.getKey()), Py.java2py(entry.getValue()));
         }
     }
 
     /** @see java.util.Map#remove(Object key) */
     public Object remove(Object key) {
-        return tojava(table.remove(Py.java2py(key)));
+        return tojava(getMap().remove(Py.java2py(key)));
     }
 
     /** @see java.util.Map#put(Object key, Object value) */
     public Object put(Object key, Object value) {
-        return tojava(table.put(Py.java2py(key), Py.java2py(value)));
+        return tojava(getMap().put(Py.java2py(key), Py.java2py(value)));
     }
 
     /** @see java.util.Map#get(Object key) */
     public Object get(Object key) {
-        return tojava(table.get(Py.java2py(key)));
+        return tojava(getMap().get(Py.java2py(key)));
     }
 
     /** @see java.util.Map#containsValue(Object key) */
     public boolean containsValue(Object value) {
-        return table.containsValue(Py.java2py(value));
+        return getMap().containsValue(Py.java2py(value));
     }
 
     /** @see java.util.Map#containsValue(Object key) */
     public boolean containsKey(Object key) {
-        return table.containsKey(Py.java2py(key));
+        return getMap().containsKey(Py.java2py(key));
     }
 
     /** @see java.util.Map#isEmpty() */
     public boolean isEmpty() {
-        return table.isEmpty();
+        return getMap().isEmpty();
     }
 
     /** @see java.util.Map#size() */
     public int size() {
-        return table.size();
+        return getMap().size();
     }
 
     /** Convert return values to java objects */
-    final static Object tojava(Object val) {
+    static Object tojava(Object val) {
         return val == null ? null : ((PyObject)val).__tojava__(Object.class);
     }
 
     public Object putIfAbsent(Object key, Object value) {
-        return tojava(table.putIfAbsent(Py.java2py(key), Py.java2py(value)));
+        return tojava(getMap().putIfAbsent(Py.java2py(key), Py.java2py(value)));
     }
 
     public boolean remove(Object key, Object value) {
-        return table.remove(Py.java2py(key), Py.java2py(value));
+        return getMap().remove(Py.java2py(key), Py.java2py(value));
     }
 
     public boolean replace(Object key, Object oldValue, Object newValue) {
-        return table.replace(Py.java2py(key), Py.java2py(oldValue), Py.java2py(newValue));
+        return getMap().replace(Py.java2py(key), Py.java2py(oldValue), Py.java2py(newValue));
     }
 
     public Object replace(Object key, Object value) {
-        return tojava(table.replace(Py.java2py(key), Py.java2py(value)));
+        return tojava(getMap().replace(Py.java2py(key), Py.java2py(value)));
     }
 
 }
@@ -813,7 +871,11 @@ public class PyDictionary extends PyObject implements ConcurrentMap {
 /** Basic implementation of Entry that just holds onto a key and value and returns them. */
 class SimpleEntry implements Entry {
 
-    public SimpleEntry(Object key, Object value){
+    protected Object key;
+
+    protected Object value;
+
+    public SimpleEntry(Object key, Object value) {
         this.key = key;
         this.value = value;
     }
@@ -826,8 +888,9 @@ class SimpleEntry implements Entry {
         return value;
     }
 
+    @Override
     public boolean equals(Object o) {
-        if(!(o instanceof Map.Entry)) {
+        if (!(o instanceof Map.Entry)) {
             return false;
         }
         Map.Entry e = (Map.Entry)o;
@@ -838,10 +901,12 @@ class SimpleEntry implements Entry {
         return o1 == null ? o2 == null : o1.equals(o2);
     }
 
+    @Override
     public int hashCode() {
         return ((key == null) ? 0 : key.hashCode()) ^ ((value == null) ? 0 : value.hashCode());
     }
 
+    @Override
     public String toString() {
         return key + "=" + value;
     }
@@ -849,10 +914,6 @@ class SimpleEntry implements Entry {
     public Object setValue(Object val) {
         throw new UnsupportedOperationException("Not supported by this view");
     }
-
-    protected Object key;
-
-    protected Object value;
 }
 
 /**
@@ -869,18 +930,23 @@ class PyToJavaMapEntry extends SimpleEntry {
         super(entry.getKey(), entry.getValue());
     }
 
+    @Override
     public boolean equals(Object o) {
-        if (o == null || !(o instanceof Entry)) return false;
+        if (o == null || !(o instanceof Entry)) {
+            return false;
+        }
         Entry me = new JavaToPyMapEntry((Entry)o);
         return o.equals(me);
     }
 
     // tojava is called in getKey and getValue so the raw key and value can be
     // used to create a new SimpleEntry in getEntry.
+    @Override
     public Object getKey() {
         return PyDictionary.tojava(key);
     }
 
+    @Override
     public Object getValue() {
         return PyDictionary.tojava(value);
     }
@@ -890,6 +956,11 @@ class PyToJavaMapEntry extends SimpleEntry {
      */
     public Entry getEntry() {
         return new SimpleEntry(key, value);
+    }
+
+    @Override
+    public int hashCode() {
+        return ((key == null) ? 0 : key.hashCode()) ^ ((value == null) ? 0 : value.hashCode());
     }
 
 }
@@ -915,10 +986,12 @@ class PyMapKeyValSet extends PyMapSet {
         super(coll);
     }
 
+    @Override
     Object toJava(Object o) {
         return PyDictionary.tojava(o);
     }
 
+    @Override
     Object toPython(Object o) {
         return Py.java2py(o);
     }
@@ -940,9 +1013,11 @@ class PyMapEntrySet extends PyMapSet {
     // We know that PyMapEntrySet will only contains entries, so if the object being passed in is
     // null or not an Entry, then return null which will match nothing for remove and contains
     // methods.
+    @Override
     Object toPython(Object o) {
-        if(o == null || !(o instanceof Entry))
+        if (o == null || !(o instanceof Entry)) {
             return null;
+        }
         if (o instanceof PyToJavaMapEntry) {
             // Use the original entry from PyDictionary
             return ((PyToJavaMapEntry)o).getEntry();
@@ -951,6 +1026,7 @@ class PyMapEntrySet extends PyMapSet {
         }
     }
 
+    @Override
     Object toJava(Object o) {
         return new PyToJavaMapEntry((Entry)o);
     }
@@ -967,6 +1043,8 @@ class PyMapEntrySet extends PyMapSet {
  */
 abstract class PyMapSet extends AbstractSet {
 
+    private final Collection coll;
+
     PyMapSet(Collection coll) {
         this.coll = coll;
     }
@@ -975,18 +1053,22 @@ abstract class PyMapSet extends AbstractSet {
 
     abstract Object toPython(Object obj);
 
+    @Override
     public int size() {
         return coll.size();
     }
 
+    @Override
     public boolean contains(Object o) {
         return coll.contains(toPython(o));
     }
 
+    @Override
      public boolean remove(Object o) {
          return coll.remove(toPython(o));
     }
 
+    @Override
     public void clear() {
         coll.clear();
     }
@@ -1014,9 +1096,8 @@ abstract class PyMapSet extends AbstractSet {
         }
     }
 
+    @Override
     public Iterator iterator() {
         return new PySetIter(coll.iterator());
     }
-
-    private final Collection coll;
 }

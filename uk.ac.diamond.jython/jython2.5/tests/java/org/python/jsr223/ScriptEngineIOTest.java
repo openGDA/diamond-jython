@@ -1,11 +1,20 @@
 package org.python.jsr223;
 
+import javax.script.Bindings;
+import javax.script.Invocable;
+import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
+import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 import javax.script.ScriptEngineFactory;
+import javax.script.SimpleBindings;
 
 import junit.framework.TestCase;
 
+import java.io.FileReader;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.Reader;
 import java.io.StringReader;
 import java.io.StringWriter;
 
@@ -78,4 +87,64 @@ public class ScriptEngineIOTest extends TestCase
         assertEquals(testString1, stdout.toString());
         assertEquals(testString2, stderr.toString());
     }
+
+    public void testEvalWithReader() throws ScriptException, FileNotFoundException
+    {
+        //Check that multiple evals don't cause an NPE.
+        //See issue http://bugs.jython.org/issue1536
+        final ScriptEngineManager manager = new ScriptEngineManager();
+
+        final String engineType = "jython";
+        final ScriptEngine engine = manager.getEngineByName(engineType);
+
+        final StringWriter stdout = new StringWriter();
+        final StringWriter stderr = new StringWriter();
+
+        engine.getContext().setWriter(stdout);
+        engine.getContext().setErrorWriter(stderr);
+
+
+        final Bindings bindings = new SimpleBindings();
+        bindings.put("firstLevelNodes", 10);
+        bindings.put("secondLevelNodes", 5);
+
+        engine.setBindings(bindings, ScriptContext.ENGINE_SCOPE);
+        engine.setBindings(bindings, ScriptContext.ENGINE_SCOPE);
+
+        final Reader dfsScript = new FileReader("tests/python/dfs.py");
+
+        for (int i = 1; i <= 10; i++) {
+            engine.eval(dfsScript);
+            assertEquals(61, engine.get("result"));
+        }
+    }
+
+   public void testGetInterfaceCharSequence1() throws ScriptException, IOException {
+           ScriptEngineManager manager = new ScriptEngineManager();
+           ScriptEngine engine = manager.getEngineByName("python");
+           Invocable invocableEngine = (Invocable) engine;
+
+           assertNull(engine.eval(
+                   "from java.lang import CharSequence\n" +
+                   "class MyString(CharSequence):\n" +
+                   "   def length(self): return 3\n" +
+                   "   def charAt(self, index): return 'a'\n" +
+                   "   def subSequence(self, start, end): return \"\"\n" +
+                   "   def toString(self): return \"aaa\"\n" +
+                   "c = MyString()"));
+           CharSequence seq = invocableEngine.getInterface(engine.get("c"), CharSequence.class);
+           assertEquals("aaa", seq.toString());
+   }
+
+   public void testGetInterfaceCharSequence2() throws ScriptException, IOException {
+           ScriptEngineManager manager = new ScriptEngineManager();
+           ScriptEngine pythonEngine = manager.getEngineByName("python");
+           Invocable invocableEngine = (Invocable) pythonEngine;
+
+           assertNull(pythonEngine.eval(
+                   "from java.lang import StringBuilder\r\n" +
+                   "c = StringBuilder(\"abc\")\r\n"));
+           CharSequence seq = invocableEngine.getInterface(pythonEngine.get("c"), CharSequence.class);
+           assertEquals("abc", seq.toString());
+   }
 }

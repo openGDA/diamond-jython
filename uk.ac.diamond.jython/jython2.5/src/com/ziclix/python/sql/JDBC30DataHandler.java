@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: JDBC30DataHandler.java 2315 2003-07-03 20:06:04Z bzimmer $
  *
  * Copyright (c) 2002 brian zimmer <bzimmer@ziclix.com>
  *
@@ -18,8 +17,6 @@ import java.sql.ParameterMetaData;
  * Support for JDBC 3.x additions, notably ParameterMetaData.
  *
  * @author brian zimmer
- * @author last revised by $Author: bzimmer $
- * @version $Revision: 2315 $
  */
 public class JDBC30DataHandler extends FilterDataHandler {
 

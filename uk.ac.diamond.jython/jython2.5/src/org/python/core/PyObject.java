@@ -20,13 +20,13 @@ import org.python.util.Generic;
  * All objects known to the Jython runtime system are represented by an instance
  * of the class <code>PyObject</code> or one of its subclasses.
  */
-@ExposedType(name = "object")
+@ExposedType(name = "object", doc = BuiltinDocs.object_doc)
 public class PyObject implements Serializable {
 
     public static final PyType TYPE = PyType.fromClass(PyObject.class);
 
     /** The type of this object. */
-    PyType objtype;
+    protected PyType objtype;
 
     /**
      * An underlying Java instance that this object is wrapping or is a subclass
@@ -51,7 +51,6 @@ public class PyObject implements Serializable {
         if (Py.BOOTSTRAP_TYPES.size() > 0) {
             Py.writeWarning("init", "Bootstrap types weren't encountered in bootstrapping: "
                             + Py.BOOTSTRAP_TYPES);
-
         }
     }
 
@@ -64,7 +63,7 @@ public class PyObject implements Serializable {
      * field to correspond to the specific subclass of <code>PyObject</code> being instantiated.
      **/
     public PyObject() {
-        objtype = PyType.fromClass(getClass());
+        objtype = PyType.fromClass(getClass(), false);
     }
 
     /**
@@ -112,29 +111,17 @@ public class PyObject implements Serializable {
         return objtype;
     }
 
-    //XXX: needs doc
-    @ExposedGet(name = "__doc__")
-    public PyObject getDoc() {
-        PyObject d = fastGetDict();
-        if (d != null) {
-            PyObject doc = d.__finditem__("__doc__");
-            if(doc != null) {
-                return doc;
-            }
-        }
-        return Py.None;
-    }
-
     /**
      * Dispatch __init__ behavior
      */
-    public void dispatch__init__(PyType type, PyObject[] args, String[] keywords) {}
+    public void dispatch__init__(PyObject[] args, String[] keywords) {
+    }
 
     /**
      * Attempts to automatically initialize our Java proxy if we have one and it wasn't initialized
      * by our __init__.
      */
-    protected void proxyInit() {
+    void proxyInit() {
         Class<?> c = getType().getProxyType();
         if (javaProxy != null || c == null) {
             return;
@@ -187,6 +174,7 @@ public class PyObject implements Serializable {
         return new PyString(toString());
     }
 
+    @Override
     public String toString() {
         return object_toString();
     }
@@ -233,6 +221,7 @@ public class PyObject implements Serializable {
         return new PyInteger(hashCode());
     }
 
+    @Override
     public int hashCode() {
         return object___hash__();
     }
@@ -247,6 +236,7 @@ public class PyObject implements Serializable {
      * If overridden, it is the subclasses responsibility to ensure that
      * <code>a.equals(b) == true</code> iff <code>cmp(a,b) == 0</code>
      **/
+    @Override
     public boolean equals(Object ob_other) {
         if(ob_other == this) {
             return true;
@@ -291,9 +281,9 @@ public class PyObject implements Serializable {
         // convert faux floats
         // XXX: should also convert faux ints, but that breaks test_java_visibility
         // (ReflectedArgs resolution)
-        if (c == Double.TYPE || c == Double.class || c == Float.TYPE || c == Float.class) {
+        if (c == Double.class || c == Float.class) {
             try {
-                return __float__().getValue();
+                return __float__().asDouble();
             } catch (PyException pye) {
                 if (!pye.match(Py.AttributeError)) {
                     throw pye;
@@ -304,7 +294,7 @@ public class PyObject implements Serializable {
         return Py.NoConversion;
     }
 
-    protected Object getJavaProxy() {
+    protected synchronized Object getJavaProxy() {
         if (javaProxy == null) {
             proxyInit();
         }
@@ -537,20 +527,23 @@ public class PyObject implements Serializable {
         return __call__(args, keywords);
     }
 
-    /* xxx fix these around */
-
     public boolean isCallable() {
         return getType().lookup("__call__") != null;
     }
 
-    public boolean isMappingType() {
-        return true;
-    }
     public boolean isNumberType() {
-        return true;
+        PyType type = getType();
+        return type.lookup("__int__") != null || type.lookup("__float__") != null;
     }
+
+    public boolean isMappingType() {
+        PyType type = getType();
+        return type.lookup("__getitem__") != null
+                && !(isSequenceType() && type.lookup("__getslice__") != null);
+    }
+
     public boolean isSequenceType() {
-        return true;
+        return getType().lookup("__getitem__") != null;
     }
 
     /**
@@ -571,7 +564,8 @@ public class PyObject implements Serializable {
      * @return the length of the object
      **/
     public int __len__() {
-        throw Py.AttributeError("__len__");
+        throw Py.TypeError(String.format("object of type '%.200s' has no len()",
+                                         getType().fastGetName()));
     }
 
     /**
@@ -1310,25 +1304,33 @@ public class PyObject implements Serializable {
 
     private final int _default_cmp(PyObject other) {
         int result;
-        if (this._is(other).__nonzero__())
+        if (_is(other).__nonzero__())
             return 0;
 
         /* None is smaller than anything */
-        if (this == Py.None)
+        if (this == Py.None) {
             return -1;
-        if (other == Py.None)
+        }
+        if (other == Py.None) {
             return 1;
+        }
 
         // No rational way to compare these, so ask their classes to compare
-        PyType this_type = this.getType();
-        PyType other_type = other.getType();
-        if (this_type == other_type) {
-            return Py.id(this) < Py.id(other)? -1: 1;
+        PyType type = getType();
+        PyType otherType = other.getType();
+        if (type == otherType) {
+            return Py.id(this) < Py.id(other) ? -1 : 1;
         }
-        result = this_type.fastGetName().compareTo(other_type.fastGetName());
-        if (result == 0)
-            return Py.id(this_type)<Py.id(other_type)? -1: 1;
-        return result < 0? -1: 1;
+
+        // different type: compare type names; numbers are smaller
+        String typeName = isNumberType() ? "" : type.fastGetName();
+        String otherTypeName = other.isNumberType() ? "" : otherType.fastGetName();
+        result = typeName.compareTo(otherTypeName);
+        if (result == 0) {
+            // Same type name, or (more likely) incomparable numeric types
+            return Py.id(type) < Py.id(otherType) ? -1 : 1;
+        }
+        return result < 0 ? -1 : 1;
     }
 
     private final int _cmp_unsafe(PyObject other) {
@@ -1891,7 +1893,7 @@ public class PyObject implements Serializable {
         // situations
         // XXX: This method isn't expensive but could (and maybe
         // should?) be optimized for worst case scenarios
-        return op == "+" && (t1 == PyString.TYPE || t1 == PyUnicode.TYPE) &&
+        return (op == "+") && (t1 == PyString.TYPE || t1 == PyUnicode.TYPE) &&
                 (t2.isSubType(PyString.TYPE) || t2.isSubType(PyUnicode.TYPE));
     }
 
@@ -3640,22 +3642,22 @@ public class PyObject implements Serializable {
         throw Py.TypeError("can't delete attribute '__dict__' of instance of '" + getType().fastGetName()+ "'");
     }
 
+    public boolean implementsDescrGet() {
+        return objtype.hasGet;
+    }
+
     public boolean implementsDescrSet() {
-        return objtype.has_set;
+        return objtype.hasSet;
     }
 
     public boolean implementsDescrDelete() {
-        return objtype.has_delete;
+        return objtype.hasDelete;
     }
 
-    public boolean isDataDescr() { // implements either __set__ or __delete__
-        return objtype.has_set || objtype.has_delete;
+    public boolean isDataDescr() {
+        return objtype.hasSet || objtype.hasDelete;
     }
 
-    // doc & xxx ok this way?
-    // can return null meaning set-only or throw exception
-
-    // backward comp impls.
     /**
      * Get descriptor for this PyObject.
      *
@@ -3686,34 +3688,39 @@ public class PyObject implements Serializable {
     final PyObject object___getattribute__(PyObject arg0) {
         String name = asName(arg0);
         PyObject ret = object___findattr__(name);
-        if(ret == null)
+        if (ret == null) {
             noAttributeError(name);
+        }
         return ret;
     }
 
     // name must be interned
     final PyObject object___findattr__(String name) {
-
         PyObject descr = objtype.lookup(name);
         PyObject res;
+        boolean get = false;
 
         if (descr != null) {
-            if (descr.isDataDescr()) {
-                res = descr.__get__(this, objtype);
-                if (res != null)
-                    return res;
+            get = descr.implementsDescrGet();
+            if (get && descr.isDataDescr()) {
+                return descr.__get__(this, objtype);
             }
         }
 
         PyObject obj_dict = fastGetDict();
         if (obj_dict != null) {
             res = obj_dict.__finditem__(name);
-            if (res != null)
+            if (res != null) {
                 return res;
+            }
+        }
+
+        if (get) {
+            return descr.__get__(this, objtype);
         }
 
         if (descr != null) {
-            return descr.__get__(this, objtype);
+            return descr;
         }
 
         return null;
@@ -3727,7 +3734,6 @@ public class PyObject implements Serializable {
 
     final void object___setattr__(String name, PyObject value) {
         PyObject descr = objtype.lookup(name);
-
         boolean set = false;
 
         if (descr != null) {
@@ -3771,7 +3777,6 @@ public class PyObject implements Serializable {
 
     final void object___delattr__(String name) {
         PyObject descr = objtype.lookup(name);
-
         boolean delete = false;
 
         if (descr != null) {
@@ -3787,10 +3792,11 @@ public class PyObject implements Serializable {
             try {
                 obj_dict.__delitem__(name);
             } catch (PyException exc) {
-                if (exc.match(Py.KeyError))
+                if (exc.match(Py.KeyError)) {
                     noAttributeError(name);
-                else
+                } else {
                     throw exc;
+                }
             }
             return;
         }
@@ -4010,6 +4016,11 @@ public class PyObject implements Serializable {
         throw new ConversionException(index);
     }
 
+    /**
+     * Convert this object into an int. Throws a PyException on failure.
+     *
+     * @return an int value
+     */
     public int asInt() {
         PyObject intObj;
         try {
@@ -4020,7 +4031,7 @@ public class PyObject implements Serializable {
             }
             throw pye;
         }
-        if (!(intObj instanceof PyInteger) && !(intObj instanceof PyLong)) {
+        if (!(intObj instanceof PyInteger || intObj instanceof PyLong)) {
             // Shouldn't happen except with buggy builtin types
             throw Py.TypeError("nb_int should return int object");
         }
@@ -4029,6 +4040,28 @@ public class PyObject implements Serializable {
 
     public long asLong(int index) throws ConversionException {
         throw new ConversionException(index);
+    }
+
+    /**
+     * Convert this object longo an long. Throws a PyException on failure.
+     *
+     * @return an long value
+     */
+    public long asLong() {
+        PyObject longObj;
+        try {
+            longObj = __long__();
+        } catch (PyException pye) {
+            if (pye.match(Py.AttributeError)) {
+                throw Py.TypeError("an integer is required");
+            }
+            throw pye;
+        }
+        if (!(longObj instanceof PyLong || longObj instanceof PyInteger)) {
+            // Shouldn't happen except with buggy builtin types
+            throw Py.TypeError("integer conversion failed");
+        }
+        return longObj.asLong();
     }
 
     /**
@@ -4086,6 +4119,7 @@ class PyIdentityTuple extends PyObject {
         list = elements;
     }
 
+    @Override
     public int hashCode() {
         int x, y;
         int len = list.length;
@@ -4099,6 +4133,7 @@ class PyIdentityTuple extends PyObject {
         return x;
     }
 
+    @Override
     public boolean equals(Object o) {
         if (!(o instanceof PyIdentityTuple))
             return false;

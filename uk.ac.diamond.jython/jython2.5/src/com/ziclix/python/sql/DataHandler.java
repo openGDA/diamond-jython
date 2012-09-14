@@ -1,17 +1,11 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: DataHandler.java 6610 2009-07-31 04:52:17Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
  */
 package com.ziclix.python.sql;
-
-import org.python.core.Py;
-import org.python.core.PyFile;
-import org.python.core.PyObject;
-import org.python.core.PyList;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
@@ -20,9 +14,11 @@ import java.io.InputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.lang.reflect.Constructor;
-import java.math.BigInteger;
 import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.sql.Blob;
 import java.sql.CallableStatement;
+import java.sql.Clob;
 import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -31,6 +27,11 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+
+import org.python.core.Py;
+import org.python.core.PyFile;
+import org.python.core.PyList;
+import org.python.core.PyObject;
 
 /**
  * The DataHandler is responsible mapping the JDBC data type to
@@ -44,8 +45,6 @@ import java.sql.Types;
  * CLOBs and Arrays.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6610 $
  */
 public class DataHandler {
 
@@ -234,11 +233,14 @@ public class DataHandler {
 
             case Types.CHAR:
             case Types.VARCHAR:
+            case Java6Types.NCHAR:
+            case Java6Types.NVARCHAR:
                 String string = set.getString(col);
                 obj = string == null ? Py.None : Py.newUnicode(string);
                 break;
 
             case Types.LONGVARCHAR:
+            case Java6Types.LONGNVARCHAR:
                 Reader reader = set.getCharacterStream(col);
                 obj = reader == null ? Py.None : Py.newUnicode(read(reader));
                 break;
@@ -250,6 +252,7 @@ public class DataHandler {
                 break;
 
             case Types.BIT:
+            case Types.BOOLEAN:
                 obj = set.getBoolean(col) ? Py.True : Py.False;
                 break;
 
@@ -291,6 +294,7 @@ public class DataHandler {
                 break;
 
             case Types.OTHER:
+            case Types.JAVA_OBJECT:
                 obj = Py.java2py(set.getObject(col));
                 break;
 
@@ -300,14 +304,43 @@ public class DataHandler {
                 obj = Py.java2py(set.getBytes(col));
                 break;
 
-            default :
-                Integer[] vals = {new Integer(col), new Integer(type)};
-                String msg = zxJDBC.getString("errorGettingIndex", vals);
+            case Types.BLOB:
+                Blob blob = set.getBlob(col);
+                obj = blob == null ? Py.None : Py.java2py(read(blob.getBinaryStream()));
+                break;
 
-                throw new SQLException(msg);
+            case Types.CLOB:
+            case Java6Types.NCLOB:
+            case Java6Types.SQLXML:
+                Clob clob = set.getClob(col);
+                obj = clob == null ? Py.None : Py.java2py(read(clob.getCharacterStream()));
+                break;
+                
+            // TODO can we support these?
+            case Types.ARRAY:
+                throw createUnsupportedTypeSQLException("ARRAY", col);
+            case Types.DATALINK:
+                throw createUnsupportedTypeSQLException("DATALINK", col);
+            case Types.DISTINCT:
+                throw createUnsupportedTypeSQLException("DISTINCT", col);
+            case Types.REF:
+                throw createUnsupportedTypeSQLException("REF", col);
+            case Java6Types.ROWID:
+                throw createUnsupportedTypeSQLException("STRUCT", col);
+            case Types.STRUCT:
+                throw createUnsupportedTypeSQLException("STRUCT", col);
+                
+            default :
+                throw createUnsupportedTypeSQLException(new Integer(type), col);
         }
 
         return set.wasNull() || obj == null ? Py.None : obj;
+    }
+
+    protected final SQLException createUnsupportedTypeSQLException(Object type, int col) {
+        Object[] vals = {type, new Integer(col)};
+        String msg = zxJDBC.getString("unsupportedTypeForColumn", vals);
+        return new SQLException(msg);
     }
 
     /**
@@ -387,10 +420,7 @@ public class DataHandler {
                 break;
 
             default :
-                Integer[] vals = {new Integer(col), new Integer(type)};
-                String msg = zxJDBC.getString("errorGettingIndex", vals);
-
-                throw new SQLException(msg);
+                createUnsupportedTypeSQLException(type, col);
         }
 
         return stmt.wasNull() || obj == null ? Py.None : obj;
@@ -534,5 +564,60 @@ public class DataHandler {
     public String toString() {
         return getClass().getName();
     }
+    
+    /**
+     * This interface can be removed as soon as we target java 6
+     */
+    private static interface Java6Types{
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>ROWID</code>
+         * 
+         * @since 1.6
+         *
+         */
+        public final static int ROWID = -8;
+
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>NCHAR</code>
+         *
+         * @since 1.6
+         */
+        public static final int NCHAR = -15;
+
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>NVARCHAR</code>.
+         *
+         * @since 1.6
+         */
+        public static final int NVARCHAR = -9;
+
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>LONGNVARCHAR</code>.
+         *
+         * @since 1.6
+         */
+        public static final int LONGNVARCHAR = -16;
+
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>NCLOB</code>.
+         *
+         * @since 1.6
+         */
+        public static final int NCLOB = 2011;
+
+        /**
+         * The constant in the Java programming language, sometimes referred to
+         * as a type code, that identifies the generic SQL type <code>XML</code>.
+         *
+         * @since 1.6 
+         */
+        public static final int SQLXML = 2009;
+    }
+    
 }
 

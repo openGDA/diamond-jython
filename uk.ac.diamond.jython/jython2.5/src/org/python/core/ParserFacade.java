@@ -4,14 +4,11 @@ package org.python.core;
 import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.StringReader;
-import java.io.Writer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
@@ -25,7 +22,6 @@ import org.antlr.runtime.CommonTokenStream;
 import org.python.antlr.BaseParser;
 import org.python.antlr.NoCloseReaderStream;
 import org.python.antlr.ParseException;
-import org.python.antlr.PythonLexer;
 import org.python.antlr.PythonPartialLexer;
 import org.python.antlr.PythonPartialParser;
 import org.python.antlr.PythonTokenSource;
@@ -122,8 +118,10 @@ public class ParserFacade {
         try {
             bufReader = prepBufReader(reader, cflags, filename);
             // first, try parsing as an expression
-            return parse(bufReader, CompileMode.eval, filename, cflags );
+            return parse(bufReader, CompileMode.eval, filename, cflags);
         } catch (Throwable t) {
+            if (bufReader == null)
+                throw Py.JavaError(t); // can't do any more
             try {
                 // then, try parsing as a module
                 bufReader.reset();
@@ -131,8 +129,6 @@ public class ParserFacade {
             } catch (Throwable tt) {
                 throw fixParseError(bufReader, tt, filename);
             }
-        } finally {
-            close(bufReader);
         }
     }
 
@@ -232,7 +228,7 @@ public class ParserFacade {
         try {
             bufreader.reset();
             CharStream cs = new NoCloseReaderStream(bufreader);
-            lexer = new BaseParser.PyPartialLexer(cs);
+            lexer = new PythonPartialLexer(cs);
             CommonTokenStream tokens = new CommonTokenStream(lexer);
             PythonTokenSource indentedSource = new PythonTokenSource(tokens, filename);
             tokens = new CommonTokenStream(indentedSource);
@@ -346,9 +342,9 @@ public class ParserFacade {
     }
 
     private static ExpectedEncodingBufferedReader prepBufReader(String string,
-                                                                CompilerFlags cflags,
-                                                                String filename)
-        throws IOException {
+            CompilerFlags cflags,
+            String filename)
+            throws IOException {
         if (cflags.source_is_utf8)
             return prepBufReader(new StringReader(string), cflags, filename);
 
@@ -387,7 +383,7 @@ public class ParserFacade {
     private static String readEncoding(InputStream stream) throws IOException {
         stream.mark(MARK_LIMIT);
         String encoding = null;
-        BufferedReader br = new BufferedReader(new InputStreamReader(stream), 512);
+        BufferedReader br = new BufferedReader(new InputStreamReader(stream, "ISO-8859-1"), 512);
         encoding = findEncoding(br);
         // XXX: reset() can still raise an IOException if a line exceeds our large mark
         // limit
@@ -431,10 +427,10 @@ public class ParserFacade {
         return encoding;
     }
 
+    private static final Pattern pep263EncodingPattern = Pattern.compile("#.*coding[:=]\\s*([-\\w.]+)");
+
     private static String matchEncoding(String inputStr) {
-        String patternStr = "coding[:=]\\s*([-\\w.]+)";
-        Pattern pattern = Pattern.compile(patternStr);
-        Matcher matcher = pattern.matcher(inputStr);
+        Matcher matcher = pep263EncodingPattern.matcher(inputStr);
         boolean matchFound = matcher.find();
 
         if (matchFound && matcher.groupCount() == 1) {

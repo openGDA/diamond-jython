@@ -30,56 +30,25 @@ public class Version {
     public static int PY_RELEASE_LEVEL;
     public static int PY_RELEASE_SERIAL;
 
-    /** Timestamp and revision number of the current build. */
+    /** Timestamp of the current build. */
     public static String DATE;
     public static String TIME;
-    public static String SVN_REVISION;
 
-    /** Determined from headURL, branch is the path under the
-     * subversion root, e.g. branches/asm. */
-    public static String BRANCH;
+    /** Current hg branch (hg id -b). */
+    public static String HG_BRANCH;
 
-    /** Short version of branch, e.g. asm. */
-    public static String SHORT_BRANCH;
+    /** Current hg tag (hg id -t), e.g. 'tip'. */
+    public static String HG_TAG;
+
+    /** Current hg global revision id (hg id -i). */
+    public static String HG_VERSION;
 
     /** The flags that are set by default in a code object. */
     private static final Collection<CodeFlag> defaultCodeFlags = Arrays.asList(
             CodeFlag.CO_NESTED, CodeFlag.CO_GENERATOR_ALLOWED);
 
-    private static final String headURL =
-            "$HeadURL: https://jython.svn.sourceforge.net/svnroot/jython/tags/Release_2_5_1/jython/src/org/python/Version.java $";
-
     static {
-        initVersion();
-    }
-
-    /**
-     * Load the version information and determine BRANCH and
-     * SHORT_BRANCH from headURL.
-     */
-    private static void initVersion() {
         loadProperties();
-
-        int jython = headURL.indexOf("/jython/");
-        if (jython > -1) {
-            int brStart = jython + 8;
-            String end = headURL.substring(brStart, headURL.length());
-
-            if (end.startsWith("trunk/")) {
-                BRANCH = SHORT_BRANCH = "trunk";
-                return;
-            } else if (end.startsWith("tags/") || end.startsWith("branches/")) {
-                int brEnd = end.indexOf('/');
-                int brEnd2 = end.indexOf('/', brEnd + 1);
-                if (brEnd2 > -1) {
-                    BRANCH = end.substring(0, brEnd2);
-                    SHORT_BRANCH = end.substring(brEnd + 1, brEnd2);
-                    return;
-                }
-            }
-        }
-        BRANCH = "";
-        SHORT_BRANCH = "unknown";
     }
 
     /**
@@ -102,7 +71,9 @@ public class Version {
                 PY_RELEASE_SERIAL = Integer.valueOf(properties.getProperty("jython.release_serial"));
                 DATE = properties.getProperty("jython.build.date");
                 TIME = properties.getProperty("jython.build.time");
-                SVN_REVISION = properties.getProperty("jython.build.svn_revision");
+                HG_BRANCH = properties.getProperty("jython.build.hg_branch");
+                HG_TAG = properties.getProperty("jython.build.hg_tag");
+                HG_VERSION = properties.getProperty("jython.build.hg_version");
             } catch (IOException ioe) {
                 System.err.println("There was a problem loading ".concat(versionProperties)
                         .concat(":"));
@@ -122,29 +93,28 @@ public class Version {
     }
 
     /**
-     * Return the current subversion revision number. May be an empty
-     * string on environments that can't determine it.
+     * Return the current hg version number. May be an empty string on environments that
+     * can't determine it.
      */
-    public static String getSubversionRevision() {
-        return SVN_REVISION;
+    public static String getHGVersion() {
+        return HG_VERSION;
     }
 
     /**
-     * Return the current branch name.
+     * Return the current hg identifier name, either the current branch or tag.
      */
-    public static String getSubversionShortBranch() {
-        return SHORT_BRANCH;
+    public static String getHGIdentifier() {
+        return "".equals(HG_TAG) || "tip".equals(HG_TAG) ? HG_BRANCH : HG_TAG;
     }
 
     /**
-     * Return the current build information, including revision and
-     * timestamp.
+     * Return the current build information, including revision and timestamp.
      */
     public static String getBuildInfo() {
-        String revision = getSubversionRevision();
+        String revision = getHGVersion();
         String sep = "".equals(revision) ? "" : ":";
-        String branch = getSubversionShortBranch();
-        return String.format("%s%s%s, %.20s, %.9s", branch, sep, revision, DATE, TIME);
+        String hgId = getHGIdentifier();
+        return String.format("%s%s%s, %.20s, %.9s", hgId, sep, revision, DATE, TIME);
     }
 
     /**

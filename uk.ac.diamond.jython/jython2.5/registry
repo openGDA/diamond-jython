@@ -41,7 +41,7 @@ python.packages.directories = java.ext.dirs
 
 # Setting this to a valid codec name will cause the console to use a
 # different encoding when reading commands from the console.
-python.console.encoding = UTF-8
+#python.console.encoding = cp850
 
 # Setting this to false will allow Jython to provide access to
 # non-public fields, methods, and constructors of Java objects.

@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: InformixDataHandler.java 6610 2009-07-31 04:52:17Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -30,8 +29,6 @@ import org.python.core.PyString;
  * Informix specific data handling.
  *
  * @author brian zimmer
- * @author last revised by $Author: pjenvey $
- * @version $Revision: 6610 $
  */
 public class InformixDataHandler extends FilterDataHandler {
 

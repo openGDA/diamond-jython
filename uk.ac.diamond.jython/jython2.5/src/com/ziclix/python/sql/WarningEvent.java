@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: WarningEvent.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *

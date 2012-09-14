@@ -7,11 +7,12 @@
  */
 package org.python.core;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 
 import java.util.ArrayList;
 import java.util.Iterator;
+
+import org.python.core.util.StringUtil;
 
 /**
  * Contains the implementation of the builtin codecs.
@@ -805,17 +806,7 @@ public class codecs {
     }
 
     public static String PyUnicode_EncodeUTF8(String str, String errors) {
-        final Charset utf8 = Charset.forName("UTF-8");
-        final ByteBuffer bbuf = utf8.encode(str);
-        final StringBuilder v = new StringBuilder(bbuf.limit());
-        while (bbuf.remaining() > 0) {
-            int val = bbuf.get();
-            if (val < 0) {
-                val = 256 + val;
-            }
-            v.appendCodePoint(val);
-        }
-        return v.toString();
+        return StringUtil.fromBytes(Charset.forName("UTF-8").encode(str));
     }
 
     public static String PyUnicode_DecodeASCII(String str, int size, String errors) {
@@ -1081,7 +1072,7 @@ public class codecs {
             }
             guard_delta = delta + ((m - n) * (h + 1));
             if (guard_delta > Integer.MAX_VALUE) {
-                throw Py.UnicodeEncodeError("punycode", input.string, codePointIndex, codePointIndex + 1, "overflow");
+                throw Py.UnicodeEncodeError("punycode", input.getString(), codePointIndex, codePointIndex + 1, "overflow");
             }
             delta = (int) guard_delta;
 
@@ -1092,7 +1083,7 @@ public class codecs {
                 if (c < n) {
                     guard_delta = delta + 1;
                     if (guard_delta > Integer.MAX_VALUE) {
-                        throw Py.UnicodeEncodeError("punycode", input.string, i, i + 1, "overflow");
+                        throw Py.UnicodeEncodeError("punycode", input.getString(), i, i + 1, "overflow");
                     }
                     delta = (int) guard_delta;
                 }

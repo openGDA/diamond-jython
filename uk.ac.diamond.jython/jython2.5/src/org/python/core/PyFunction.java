@@ -1,6 +1,10 @@
 // Copyright (c) Corporation for National Research Initiatives
 package org.python.core;
 
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+
 import org.python.expose.ExposedDelete;
 import org.python.expose.ExposedGet;
 import org.python.expose.ExposedMethod;
@@ -11,8 +15,8 @@ import org.python.expose.ExposedType;
 /**
  * A Python function.
  */
-@ExposedType(name = "function", isBaseType = false)
-public class PyFunction extends PyObject {
+@ExposedType(name = "function", isBaseType = false, doc = BuiltinDocs.function_doc)
+public class PyFunction extends PyObject implements InvocationHandler {
 
     public static final PyType TYPE = PyType.fromClass(PyFunction.class);
 
@@ -57,6 +61,7 @@ public class PyFunction extends PyObject {
 
     public PyFunction(PyObject globals, PyObject[] defaults, PyCode code, PyObject doc,
                       PyObject[] closure_cells) {
+        super(TYPE);
         func_globals = globals;
         __name__ = code.co_name;
         __doc__ = doc != null ? doc : Py.None;
@@ -283,11 +288,6 @@ public class PyFunction extends PyObject {
     }
 
     @Override
-    public PyObject getDoc() {
-        return __doc__;
-    }
-
-    @Override
     public PyObject __get__(PyObject obj, PyObject type) {
         return function___get__(obj, type);
     }
@@ -301,7 +301,7 @@ public class PyFunction extends PyObject {
     public PyObject __call__() {
         return __call__(Py.getThreadState());
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state) {
         return func_code.call(state, func_globals, func_defaults, func_closure);
@@ -311,7 +311,7 @@ public class PyFunction extends PyObject {
     public PyObject __call__(PyObject arg) {
         return __call__(Py.getThreadState(), arg);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject arg0) {
         return func_code.call(state, arg0, func_globals, func_defaults, func_closure);
@@ -321,7 +321,7 @@ public class PyFunction extends PyObject {
     public PyObject __call__(PyObject arg1, PyObject arg2) {
         return __call__(Py.getThreadState(), arg1, arg2);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject arg0, PyObject arg1) {
         return func_code.call(state, arg0, arg1, func_globals, func_defaults, func_closure);
@@ -331,30 +331,31 @@ public class PyFunction extends PyObject {
     public PyObject __call__(PyObject arg1, PyObject arg2, PyObject arg3) {
         return __call__(Py.getThreadState(), arg1, arg2, arg3);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject arg0, PyObject arg1,
             PyObject arg2) {
         return func_code.call(state, arg0, arg1, arg2, func_globals, func_defaults, func_closure);
     }
-    
+
     @Override
     public PyObject __call__(PyObject arg0, PyObject arg1, PyObject arg2,
             PyObject arg3) {
         return __call__(Py.getThreadState(), arg0, arg1, arg2, arg3);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject arg0, PyObject arg1,
             PyObject arg2, PyObject arg3) {
-        return func_code.call(state, arg0, arg1, arg2, arg3, func_globals, func_defaults, func_closure);
+        return func_code.call(state, arg0, arg1, arg2, arg3, func_globals, func_defaults,
+                              func_closure);
     }
-    
+
     @Override
     public PyObject __call__(PyObject[] args) {
         return __call__(Py.getThreadState(), args);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject[] args) {
         return __call__(state, args, Py.NoKeywords);
@@ -362,32 +363,83 @@ public class PyFunction extends PyObject {
 
     @Override
     public PyObject __call__(PyObject[] args, String[] keywords) {
-        return function___call__(args, keywords);
+        return __call__(Py.getThreadState(), args, keywords);
     }
-    
+
     @Override
     public PyObject __call__(ThreadState state, PyObject[] args, String[] keywords) {
-        return func_code.call(state, args, keywords, func_globals, func_defaults, func_closure);
+        return function___call__(state, args, keywords);
     }
 
     @ExposedMethod(doc = BuiltinDocs.function___call___doc)
-    final PyObject function___call__(PyObject[] args, String[] keywords) {
-        return __call__(Py.getThreadState(), args, keywords);
+    final PyObject function___call__(ThreadState state, PyObject[] args, String[] keywords) {
+        return func_code.call(state, args, keywords, func_globals, func_defaults, func_closure);
     }
 
     @Override
     public PyObject __call__(PyObject arg1, PyObject[] args, String[] keywords) {
         return __call__(Py.getThreadState(), arg1, args, keywords);
     }
-    
+
     @Override
-    public PyObject __call__(ThreadState state, PyObject arg1, PyObject[] args, String[] keywords) {
-        return func_code.call(state, arg1, args, keywords, func_globals, func_defaults, func_closure);
+    public PyObject __call__(ThreadState state, PyObject arg1, PyObject[] args,
+                             String[] keywords) {
+        return func_code.call(state, arg1, args, keywords, func_globals, func_defaults,
+                              func_closure);
     }
 
     @Override
     public String toString() {
         return String.format("<function %s at %s>", __name__, Py.idstr(this));
+    }
+
+    @Override
+    public Object __tojava__(Class<?> c) {
+        // Automatically coerce to single method interfaces
+        if (c.isInstance(this) && c != InvocationHandler.class) {
+            // for base types, conversion is simple - so don't wrap!
+            // InvocationHandler is special, since it's a single method interface
+            // that we implement, but if we coerce to it we want the arguments
+            return c.cast( this );
+        } else if (c.isInterface()) {
+            if (c.getDeclaredMethods().length == 1 && c.getInterfaces().length == 0) {
+                // Proper single method interface
+                return proxy(c);
+            } else {
+                // Try coerce to interface with multiple overloaded versions of
+                // the same method (name)
+                String name = null;
+                for (Method method : c.getMethods()) {
+                    if (method.getDeclaringClass() != Object.class) {
+                        if (name == null || name.equals(method.getName())) {
+                            name = method.getName();
+                        } else {
+                            name = null;
+                            break;
+                        }
+                    }
+                }
+                if (name != null) { // single unique method name
+                    return proxy(c);
+                }
+            }
+        }
+        return super.__tojava__(c);
+    }
+
+    private Object proxy( Class<?> c ) {
+        return Proxy.newProxyInstance(c.getClassLoader(), new Class[]{c}, this);
+    }
+
+    public Object invoke( Object proxy, Method method, Object[] args ) throws Throwable {
+        // Handle invocation when invoked through Proxy (as coerced to single method interface)
+        if (method.getDeclaringClass() == Object.class) {
+            return method.invoke( this, args );
+        } else if (args == null || args.length == 0) {
+            return __call__().__tojava__(method.getReturnType());
+        } else {
+            return __call__(Py.javas2pys(args)).__tojava__(method.getReturnType());
+        }
     }
 
     @Override

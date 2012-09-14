@@ -26,10 +26,6 @@ import org.python.core.PyType;
  * @version cStringIO.java,v 1.10 1999/05/20 18:03:20 fb Exp
  */
 public class cStringIO {
-    /**
-     * Create an empty StringIO object
-     * @return          a new StringIO object.
-     */
 
     // would be nicer if we directly imported from os, but crazy to do so
     // since in python code itself
@@ -48,7 +44,7 @@ public class cStringIO {
 
     /**
      * Create a StringIO object, initialized by the value.
-     * @param buf       The initial value.
+     * @param buffer       The initial value.
      * @return          a new StringIO object.
      */
     public static StringIO StringIO(String buffer) {
@@ -110,6 +106,11 @@ public class cStringIO {
          */
         public void close() {
             closed = true;
+            // No point in zeroing the buf, because it won't be reused.
+            // buf is a final variable, so can't set to null.
+            // Therefore, just leave it and let it be GC'ed when the enclosing object is GC'ed
+            // Or remove the final declaration
+            // buf = null;
         }
 
 
@@ -134,8 +135,11 @@ public class cStringIO {
 
         /**
          * Position the file pointer to the position in the .
-         * @param       pos the position in the file.
-         * @param       mode; 0=from the start, 1=relative, 2=from the end.
+         * 
+         * @param pos
+         *            the position in the file.
+         * @param mode
+         *            0=from the start, 1=relative, 2=from the end.
          */
         public synchronized void seek(long pos, int mode) {
             _complain_ifclosed();
@@ -162,7 +166,7 @@ public class cStringIO {
 
         /**
          * Return the file position.
-         * @returns     the position in the file.
+         * @return     the position in the file.
          */
         public synchronized int tell() {
             _complain_ifclosed();
@@ -174,7 +178,7 @@ public class cStringIO {
         /**
          * Read all data until EOF is reached.
          * An empty string is returned when EOF is encountered immediately.
-         * @returns     A string containing the data.
+         * @return     A string containing the data.
          */
         public PyString read() {
             return read(-1);
@@ -187,7 +191,7 @@ public class cStringIO {
          * reached. An empty string is returned when EOF is encountered
          * immediately.
          * @param size  the number of characters to read.
-         * @returns     A string containing the data read.
+         * @return     A string containing the data read.
          */
 
         public synchronized PyString read(long size) {
@@ -212,7 +216,7 @@ public class cStringIO {
          * is kept in the string (but may be absent when a file ends with
          * an incomplete line).
          * An empty string is returned when EOF is hit immediately.
-         * @returns data from the file up to and including the newline.
+         * @return data from the file up to and including the newline.
          */
         public PyString readline() {
             return readline(-1);
@@ -226,7 +230,7 @@ public class cStringIO {
          * If the size argument is non-negative, it is a maximum byte count
          * (including the trailing newline) and an incomplete line may be
          * returned.
-         * @returns data from the file up to and including the newline.
+         * @return data from the file up to and including the newline.
          */
         public synchronized PyString readline(long size) {
             _complain_ifclosed();
@@ -317,7 +321,7 @@ public class cStringIO {
 
         /**
          * Write a string to the file.
-         * @param s     The data to write.
+         * @param obj     The data to write.
          */
         public void write(PyObject obj) {
             write(obj.toString());
@@ -403,6 +407,7 @@ public class cStringIO {
          * @return      the contents of the StringIO.
          */
         public synchronized PyString getvalue() {
+            _complain_ifclosed();
             return new PyString(buf.toString());
         }
 

@@ -6,7 +6,7 @@ package org.python.core;
 
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.LinkedList;
+import java.util.concurrent.Callable;
 
 import org.python.core.io.BinaryIOWrapper;
 import org.python.core.io.BufferedIOBase;
@@ -32,20 +32,20 @@ import org.python.expose.ExposedType;
 /**
  * The Python file type. Wraps an {@link TextIOBase} object.
  */
-@ExposedType(name = "file")
+@ExposedType(name = "file", doc = BuiltinDocs.file_doc)
 public class PyFile extends PyObject {
 
     public static final PyType TYPE = PyType.fromClass(PyFile.class);
 
     /** The filename */
-    @ExposedGet
+    @ExposedGet(doc = BuiltinDocs.file_name_doc)
     public PyObject name;
 
     /** The mode string */
-    @ExposedGet
+    @ExposedGet(doc = BuiltinDocs.file_mode_doc)
     public String mode;
 
-    @ExposedGet
+    @ExposedGet(doc = BuiltinDocs.file_encoding_doc)
     public String encoding;
 
     /** Indicator dictating whether a space should be written to this
@@ -78,13 +78,6 @@ public class PyFile extends PyObject {
      * shutdown */
     private Closer closer;
 
-    /** All PyFiles' closers */
-    private static LinkedList<Closer> closers = new LinkedList<Closer>();
-
-    static {
-        initCloser();
-    }
-
     public PyFile() {}
 
     public PyFile(PyType subType) {
@@ -96,7 +89,7 @@ public class PyFile extends PyObject {
         file___init__(raw, name, mode, bufsize);
     }
 
-    PyFile(InputStream istream, String name, String mode, int bufsize, boolean closefd) {
+    public PyFile(InputStream istream, String name, String mode, int bufsize, boolean closefd) {
         parseMode(mode);
         file___init__(new StreamIO(istream, closefd), name, mode, bufsize);
     }
@@ -154,8 +147,8 @@ public class PyFile extends PyObject {
         }
         String mode = ap.getString(1, "r");
         int bufsize = ap.getInt(2, -1);
-        file___init__(new FileIO(name.toString(), parseMode(mode)), name, mode, bufsize);
-        closer = new Closer(file);
+        file___init__(new FileIO((PyString) name, parseMode(mode)), name, mode, bufsize);
+        closer = new Closer(file, Py.getSystemState());
     }
 
     private void file___init__(RawIOBase raw, String name, String mode, int bufsize) {
@@ -389,7 +382,7 @@ public class PyFile extends PyObject {
         if (obj instanceof PyUnicode) {
             return ((PyUnicode)obj).encode();
         } else if (obj instanceof PyString) {
-            return ((PyString)obj).string;
+            return ((PyString) obj).getString();
         } else if (binary && obj instanceof PyArray) {
             return ((PyArray)obj).tostring();
         }
@@ -464,11 +457,7 @@ public class PyFile extends PyObject {
             file_truncate();
             return;
         }
-        try {
-            file_truncate(position.asLong(0));
-        } catch (PyObject.ConversionException ce) {
-            throw Py.TypeError("an integer is required");
-        }
+        file_truncate(position.asLong());
     }
 
     final synchronized void file_truncate(long position) {
@@ -525,17 +514,17 @@ public class PyFile extends PyObject {
         file.checkClosed();
     }
 
-    @ExposedGet(name = "closed")
+    @ExposedGet(name = "closed", doc = BuiltinDocs.file_closed_doc)
     public boolean getClosed() {
         return file.closed();
     }
 
-    @ExposedGet(name = "newlines")
+    @ExposedGet(name = "newlines", doc = BuiltinDocs.file_newlines_doc)
     public PyObject getNewlines() {
         return file.getNewlines();
     }
 
-    @ExposedGet(name = "softspace")
+    @ExposedGet(name = "softspace", doc = BuiltinDocs.file_softspace_doc)
     public PyObject getSoftspace() {
         // NOTE: not actual bools because CPython is this way
         return softspace ? Py.One : Py.Zero;
@@ -573,16 +562,9 @@ public class PyFile extends PyObject {
         }
     }
 
-    private static void initCloser() {
-        try {
-            Runtime.getRuntime().addShutdownHook(new PyFileCloser());
-        } catch (SecurityException se) {
-            Py.writeDebug("PyFile", "Can't register file closer hook");
-        }
-    }
-
+  
     /**
-     * A mechanism to make sure PyFiles are closed on exit. On creation Closer adds itself
+     * XXX update docs - A mechanism to make sure PyFiles are closed on exit. On creation Closer adds itself
      * to a list of Closers that will be run by PyFileCloser on JVM shutdown. When a
      * PyFile's close or finalize methods are called, PyFile calls its Closer.close which
      * clears Closer out of the shutdown queue.
@@ -592,55 +574,36 @@ public class PyFile extends PyObject {
      * be called during shutdown, so we can't use it. It's vital that this Closer has no
      * reference to the PyFile it's closing so the PyFile remains garbage collectable.
      */
-    private static class Closer {
+    private static class Closer implements Callable<Void> {
 
-        /** The underlying file */
-        private TextIOBase file;
+        /**
+         * The underlying file
+         */
+        private final TextIOBase file;
+        private PySystemState sys;
 
-        public Closer(TextIOBase file) {
+        public Closer(TextIOBase file, PySystemState sys) {
             this.file = file;
-            // Add ourselves to the queue of Closers to be run on shutdown
-            synchronized (closers) {
-                closers.add(this);
-            }
+            this.sys = sys;
+            sys.registerCloser(this);
         }
 
+        /** For closing directly */
         public void close() {
-            synchronized (closers) {
-                if (!closers.remove(this)) {
-                    return;
-                }
-            }
-            doClose();
-        }
-
-        public void doClose() {
+            sys.unregisterCloser(this);
             file.close();
+            sys = null;
         }
+
+        /** For closing as part of a shutdown process */
+        public Void call() {
+            file.close();
+            sys = null;
+            return null;
+        }
+
     }
 
-    private static class PyFileCloser extends Thread {
 
-        public PyFileCloser() {
-            super("Jython Shutdown File Closer");
-        }
-
-        @Override
-        public void run() {
-            if (closers == null) {
-                // closers can be null in some strange cases
-                return;
-            }
-            synchronized (closers) {
-                while (closers.size() > 0) {
-                    try {
-                        closers.removeFirst().doClose();
-                    } catch (PyException e) {
-                        // continue
-                    }
-                }
-            }
-        }
-    }
 
 }

@@ -77,6 +77,7 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         return obj;
     }
 
+    @Override
     public PyObject __call__(PyObject self, PyObject[] args, String[] keywords) {
         if (self == null) {
             throw Py.TypeError("invalid self argument to constructor");
@@ -114,36 +115,82 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         }
         ReflectedCallData callData = new ReflectedCallData();
         Object method = null;
-        // Remove keyword args
+        
+        // If we have keyword args, there are two ways this can be handled;
+        // a) we find a constructor that takes keyword args, and use it.
+        // b) we don't, in which case we strip the keyword args, and pass the
+        //     non-keyword args, and then use the keyword args to set bean properties
+        // If we don't have keyword args; just look for a constructor that
+        // takes the right number of args.
         int nkeywords = keywords.length;
+        ReflectedArgs rargs = null;
         PyObject[] allArgs = args;
+        boolean usingKeywordArgsCtor = false;
         if (nkeywords > 0) {
-            args = new PyObject[allArgs.length - nkeywords];
-            System.arraycopy(allArgs, 0, args, 0, args.length);
-        }
-        // Check for a matching constructor to call
-        int n = nargs;
-        for (int i = 0; i < n; i++) {
-            ReflectedArgs rargs = argslist[i];
-            if (rargs.matches(null, args, Py.NoKeywords, callData)) {
-                method = rargs.data;
-                break;
+            // We have keyword args.
+            
+            // Look for a constructor; the ReflectedArgs#matches() method exits early in the case
+            // where keyword args are used
+            int n = nargs;
+            for (int i = 0; i < n; i++) {
+                rargs = argslist[i];
+                if (rargs.matches(null, args, keywords, callData)) {
+                    method = rargs.data;
+                    break;
+                }
             }
-        }
+            
+            if (method != null) {
+                // Constructor found that will accept the keyword args
+                usingKeywordArgsCtor = true;
+            } else {
+                // No constructor found that will take keyword args
+                
+                // Remove the keyword args  
+                args = new PyObject[allArgs.length - nkeywords];
+                System.arraycopy(allArgs, 0, args, 0, args.length);
+
+                // Look for a constructor with no keyword args
+                for (int i = 0; i < n; i++) {
+                    rargs = argslist[i];
+                    if (rargs.matches(null, args, Py.NoKeywords, callData)) {
+                        method = rargs.data;
+                        break;
+                    }
+                }
+            }
+       } else {
+           // Just look for a constructor with no keyword args
+           int n = nargs;
+           for (int i = 0; i < n; i++) {
+               rargs = argslist[i];
+               if (rargs.matches(null, args, Py.NoKeywords, callData)) {
+                   method = rargs.data;
+                   break;
+               }
+           }
+       }
+        
         // Throw an error if no valid set of arguments
         if (method == null) {
             throwError(callData.errArg, args.length, false, false);
         }
         // Do the actual constructor call
         constructProxy(self, (Constructor<?>)method, callData.getArgsArray(), javaClass);
-        // Do setattr's for keyword args
-        int offset = args.length;
-        for (int i = 0; i < nkeywords; i++) {
-            self.__setattr__(keywords[i], allArgs[i + offset]);
+        // Do setattr's for keyword args. This convenience allows Java bean properties to be set in
+        // by a Python constructor call.
+        // However, this is not done if the Java constructor accepts (PyObject[], String[]) as its arguments,
+        // in which case the intention is that the Java constructor will handle the keyword arguments itself.
+        if (!usingKeywordArgsCtor) {
+            int offset = args.length;
+            for (int i = 0; i < nkeywords; i++) {
+                self.__setattr__(keywords[i], allArgs[i + offset]);
+            }
         }
         return Py.None;
     }
 
+    @Override
     public PyObject __call__(PyObject[] args, String[] keywords) {
         if (args.length < 1) {
             throw Py.TypeError("constructor requires self argument");
@@ -180,6 +227,15 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         obj.javaProxy = jself;
     }
 
+    @Override
+    public PyObject _doget(PyObject container, PyObject wherefound) {
+        if (container == null) {
+            return this;
+        }
+        return new PyMethod(this, container, wherefound);
+    }
+
+    @Override
     public String toString() {
         // printArgs();
         return "<java constructor " + __name__ + " " + Py.idstr(this) + ">";

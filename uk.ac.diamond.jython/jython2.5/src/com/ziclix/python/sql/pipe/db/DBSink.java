@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: DBSink.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -24,7 +23,6 @@ import java.util.Set;
  * A database consumer.  All data transferred will be inserted into the appropriate table.
  *
  * @author brian zimmer
- * @version $Revision: 2414 $
  */
 public class DBSink extends BaseDB implements Sink {
 

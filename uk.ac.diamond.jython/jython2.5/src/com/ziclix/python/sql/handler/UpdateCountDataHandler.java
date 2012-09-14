@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: UpdateCountDataHandler.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -27,8 +26,6 @@ import java.sql.Statement;
  * <code>0</code>.</p>
  *
  * @author brian zimmer
- * @author last revised by $Author: bzimmer $
- * @version $Revision: 2414 $
  * @see java.sql.Statement#getUpdateCount()
  */
 public class UpdateCountDataHandler extends FilterDataHandler {

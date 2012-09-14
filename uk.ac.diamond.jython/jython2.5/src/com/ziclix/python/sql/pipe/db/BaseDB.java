@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: BaseDB.java 2414 2005-02-23 04:26:23Z bzimmer $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -20,7 +19,6 @@ import java.lang.reflect.Constructor;
  * Abstract class to assist in generating cursors.
  *
  * @author brian zimmer
- * @version $Revision: 2414 $
  */
 public abstract class BaseDB {
 

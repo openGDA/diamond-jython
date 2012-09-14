@@ -1,7 +1,6 @@
 /*
  * Jython Database Specification API 2.0
  *
- * $Id: PyArgParser.java 6620 2009-08-01 21:15:59Z pjenvey $
  *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
  *
@@ -18,7 +17,6 @@ import java.util.Map;
  * Parse the args and kws for a method call.
  *
  * @author brian zimmer
- * @version $Revision: 6620 $
  */
 public class PyArgParser extends Object {
 
