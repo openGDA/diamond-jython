@@ -150,11 +150,10 @@ public class JythonPath {
 	 * directories which are in the requiredJars, pluginKeys, extraPlugins and not
 	 * in the blackListedJarDirs arrays.
 	 * @param pluginsDir
-	 * @param allPluginDirs
 	 * @param isRunningInEclipse
 	 * @return jyPaths Set containing all of the required plugins
 	 */
-	public static final HashSet<String> assembleJyPaths(File pluginsDir, List<File> allPluginDirs, boolean isRunningInEclipse) {
+	public static final HashSet<String> assembleJyPaths(File pluginsDir, boolean isRunningInEclipse) {
 		final HashSet<String> jyPaths = new HashSet<String>();
 		
 		//Find third party jar files & add them all
@@ -164,6 +163,9 @@ public class JythonPath {
 				logger.debug("Adding jar file to jython path: {} ", jar.getAbsolutePath());
 			}
 		}
+		
+		//Find all the plugin directories
+		List<File> allPluginDirs = findDirs(pluginsDir, isRunningInEclipse);
 		
 		//Find other plugin directories. Where searched depends on if running in eclipse
 		if (isRunningInEclipse) {
