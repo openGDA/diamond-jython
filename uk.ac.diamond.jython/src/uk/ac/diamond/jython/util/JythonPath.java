@@ -20,11 +20,14 @@ package uk.ac.diamond.jython.util;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 
 import org.dawb.common.util.eclipse.BundleUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 
 
 public class JythonPath {
@@ -124,7 +127,7 @@ public class JythonPath {
 	/**
 	 * Gets the interpreter directory using the bundle location
 	 * @return directory path 
-	 * @throws Exception
+	 * @throws Exception when JYTHON_BUNDLE_LOC is not set (and no Jython bundle found)
 	 */
 	public static File getInterpreterDirectory() throws Exception {
 		File jyBundleLoc = null;
@@ -143,30 +146,106 @@ public class JythonPath {
 	}
 	
 	/**
+	 * Returns a set containing all of the plugins/jars found in the given 
+	 * directories which are in the requiredJars, pluginKeys, extraPlugins and not
+	 * in the blackListedJarDirs arrays.
+	 * @param pluginsDir
+	 * @param allPluginDirs
+	 * @param isRunningInEclipse
+	 * @return jyPaths Set containing all of the required plugins
+	 */
+	public static final HashSet<String> buildJyPaths(File pluginsDir, List<File> allPluginDirs, boolean isRunningInEclipse) {
+		final HashSet<String> jyPaths = new HashSet<String>();
+		
+		//Find third party jar files & add them all
+		final List<File> thirdPartyJars = findJars(pluginsDir);
+		for (File jar : thirdPartyJars) {
+			if (jyPaths.add(jar.getAbsolutePath())) {
+				logger.debug("Adding jar file to jython path: {} ", jar.getAbsolutePath());
+			}
+		}
+		
+		//Find other plugin directories. Where searched depends on if running in eclipse
+		if (isRunningInEclipse) {
+			//Locate wsdir (w/o GIT_SUFFIX)
+			File wsDir = pluginsDir;
+			if (!new File(wsDir, "tp").isDirectory()) {
+				String ws = wsDir.getName();
+				int i = ws.indexOf(GIT_SUFFIX);
+				if (i >= 0) {
+					wsDir = new File(wsDir.getParentFile(), ws.substring(0, i));
+				}
+			}
+			//Add dirs inside the wsDir/plugins directory
+			final File wsPluginsDir = new File(wsDir, "plugins");
+			if (wsPluginsDir.isDirectory()) {
+				allPluginDirs.addAll(findDirs(wsPluginsDir, isRunningInEclipse));
+			}
+			//Add jars inside the wsdir/plugins directory
+			wsDir = new File(wsDir, "tp");
+			if (wsDir.isDirectory()) {
+				wsDir = new File(wsDir, "plugins");
+				final List<File> tJars = findJars(wsDir);
+				for (File file : tJars) {
+					if (jyPaths.add(file.getAbsolutePath())) {
+						logger.debug("Adding jar file to jython path: {} ", file.getAbsolutePath());
+					}
+				}
+			}
+			//Add all plugin directories & jars contained therein
+			for (File dir: allPluginDirs){
+				File binDir = new File(dir,"bin");
+				if (binDir.isDirectory()) {
+					String binDirPath = binDir.getAbsolutePath();
+					if (jyPaths.add(binDirPath)) {
+						logger.debug("Adding directory to jython path: {}", binDirPath);
+					}
+				}
+				final List<File> tJars = findJars(dir);
+				for (File jar : tJars) {
+					if (jyPaths.add(jar.getAbsolutePath())) {
+						logger.debug("Adding jar file to jython path: {} ", jar.getAbsolutePath());
+					}
+				}
+			}
+		}
+		else {
+			//Only add directories to pyPaths
+			for (File dir: allPluginDirs) {
+				String dirPath = dir.getAbsolutePath();
+				if (jyPaths.add(dirPath)) {
+					logger.debug("Adding directory to jython path: {}", dirPath);
+				}
+			}
+		}
+		return jyPaths;
+		
+	}
+	/**
 	 * Recursively search through a given directory to locate all jar files provided 
 	 * they are in the requiredJars/extraPlugins lists
 	 * @param directory location searched for jar files 
 	 * @return List of jar files which will be added to the path
 	 */
 	public static final List<File> findJars(File directory) {
-		final List<File> libs = new ArrayList<File>();
+		final List<File> jarFiles = new ArrayList<File>();
 	
 		if (directory.isDirectory()) {
-			for (File f : directory.listFiles()) {
-				final String name = f.getName();
-				// if the file is a jar, then add it
+			for (File file : directory.listFiles()) {
+				final String name = file.getName();
+				//If the file is a jar, then add it
 				if (name.endsWith(".jar")) {
-					if (isRequired(f, requiredJars, extraPlugins)) {
-						libs.add(f);
+					if (isRequired(file, requiredJars, extraPlugins)) {
+						jarFiles.add(file);
 					}
-				} else if (f.isDirectory() && !isRequired(f, blackListedJarDirs)) {
-					libs.addAll(findJars(f));
+				} else if (file.isDirectory() && !isRequired(file, blackListedJarDirs)) {
+					jarFiles.addAll(findJars(file));
 				}
 			}
 		}
-	
-		return libs;
+		return jarFiles;
 	}
+	
 	
 	/**
 	 * Method returns path to plugin directories (behaviour depends on whether in eclipse
@@ -175,64 +254,37 @@ public class JythonPath {
 	 * @return list of directories
 	 */
 	public static List<File> findDirs(File directory, boolean isRunningInEclipse) {
-		//TODO Simplify this method to remove old git & recycle code
 		final List<File> plugins = new ArrayList<File>();
 		
+		// TODO This could be shorted code-wise (move for loop outside if), but that might be slower in execution
 		if (isRunningInEclipse) {
-			// get down to the git checkouts
-			// only do this if we are running inside Eclipse
-			List<File> dirs = new ArrayList<File>();
-			
-			//Look for subdirectories ending with the GIT_REPO_ENDING or equal to 'scisoft'
-			for (File d : directory.listFiles()) {
-				if (d.isDirectory()) {
-					String n = d.getName();
-					if (n.endsWith(GIT_REPO_ENDING)) {
-						dirs.add(d);
-						// Old source layout
-						//Can this be removed? (06-11-2014)
-					} else if (n.equals("scisoft")) {
-						for (File f : d.listFiles()) {
-							if (f.isDirectory()) {
-								if (f.getName().endsWith(GIT_REPO_ENDING)) {
-									logger.debug("Adding scisoft directory {}", f);
-									dirs.add(f);
-								}
-							}
-						}
-					}
-				}
-			}
-			//Look inside sub-directories for sub-directories which are in the plugins lists
-			for (File f : dirs) {
-				for (File p : f.listFiles()) {
-					if (p.isDirectory()) {
-						if (isRequired(p, pluginKeys, extraPlugins)) {
-							logger.debug("Adding plugin directory {}", p);
-							plugins.add(p);
-						}
+			//Look in git repos for plugin parents in given lists
+			for (File file : directory.listFiles()) {
+				if (file.isDirectory()) {
+					String fileName = file.getName();
+					if (fileName.endsWith(GIT_REPO_ENDING)) {
+						//Look in plugin parent for actual plugin directories
+						plugins.addAll(findDirs(file, false));
 					}
 				}
 			}
 		} else {
-			// Look inside directory for sub-directories which are in the plugins lists
-			if (directory.isDirectory()) {
-				for (File f : directory.listFiles()) {
-					if (f.isDirectory()) {
-						if (isRequired(f, pluginKeys, extraPlugins)) {
-							logger.debug("Adding plugin directory {}", f);
-							plugins.add(f);
-						}
+			//Look in directory for plugin names in given lists
+			for (File file : directory.listFiles()) {
+				if (file.isDirectory()) {
+					if (isRequired(file, pluginKeys, extraPlugins)) {
+						logger.debug("Found plugin directory {}", file);
+						plugins.add(file);
 					}
 				}
 			}
 		}
-		// Return all the directories we found
+		//Return all the directories we found
 		return plugins;
 	}
 	
 	/**
-	 * Check whether a file is in a list
+	 * Check whether a file is in a given list
 	 * @param file Filename to search for
 	 * @param keys List to search against
 	 * @return Boolean, true if file is in list
@@ -240,6 +292,12 @@ public class JythonPath {
 	private static boolean isRequired(File file, String[] keys) {
 		return isRequired(file, keys, null);
 	}
+	/**
+	 * Check whether a file is in given lists
+	 * @param file Filename to search for
+	 * @param keys List to search against
+	 * @return Boolean, true if file is in list
+	 */
 	private static boolean isRequired(File file, String[] keys, String[] extraKeys) {
 		String filename = file.getName();
 //		logger.debug("Jar/dir found: {}", filename);
@@ -252,6 +310,17 @@ public class JythonPath {
 			}
 		}
 		return false;
+	}
+	
+	/**
+	 * Sets the extraPlugins that are required when searching for plugins to
+	 * populate the jython path with.
+	 * @param plugins
+	 */
+	public void appendExtraPlugins(List<String> plugins) {
+		List<String> extraPlugsList = Arrays.asList(extraPlugins);
+		extraPlugsList.addAll(plugins);
+		extraPlugins = extraPlugsList.toArray(new String[0]);
 	}
 
 }
