@@ -154,7 +154,7 @@ public class JythonPath {
 	 * @param isRunningInEclipse
 	 * @return jyPaths Set containing all of the required plugins
 	 */
-	public static final HashSet<String> buildJyPaths(File pluginsDir, List<File> allPluginDirs, boolean isRunningInEclipse) {
+	public static final HashSet<String> assembleJyPaths(File pluginsDir, List<File> allPluginDirs, boolean isRunningInEclipse) {
 		final HashSet<String> jyPaths = new HashSet<String>();
 		
 		//Find third party jar files & add them all
