@@ -37,8 +37,9 @@ public class JythonPath {
 	private static final String GIT_REPO_ENDING = ".git";
 	private static final String GIT_SUFFIX = "_git";
 	private static final String JYTHON_BUNDLE = "uk.ac.diamond.jython";
-	private static final String JYTHON_VERSION = "2.5";
 	private static final String JYTHON_BUNDLE_LOC = JYTHON_BUNDLE + ".location";
+	private static final String JYTHON_EXEC= "jython.jar";
+	private static final String JYTHON_VERSION = "2.5";
 	private static String JYTHON_DIR = "jython" + JYTHON_VERSION;
 	private static final String SCISOFTPY = "uk.ac.diamond.scisoft.python";
 	
@@ -323,6 +324,14 @@ public class JythonPath {
 		List<String> extraPlugsList = Arrays.asList(extraPlugins);
 		extraPlugsList.addAll(plugins);
 		extraPlugins = extraPlugsList.toArray(new String[0]);
+	}
+	
+	/**
+	 * Returns name of Jython executable.
+	 * @return JYTHON_EXEC
+	 */
+	public static String getJythonExecutableName() {
+		return JYTHON_EXEC;
 	}
 
 }
