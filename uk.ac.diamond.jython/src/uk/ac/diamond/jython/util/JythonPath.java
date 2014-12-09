@@ -259,7 +259,7 @@ public class JythonPath {
 	public static List<File> findDirs(File directory, boolean isRunningInEclipse) {
 		final List<File> plugins = new ArrayList<File>();
 		
-		// TODO This could be shorted code-wise (move for loop outside if), but that might be slower in execution
+		// TODO This could be shortened code-wise (move for loop outside if), but that might be slower in execution
 		if (isRunningInEclipse) {
 			//Look in git repos for plugin parents in given lists
 			for (File file : directory.listFiles()) {
