@@ -154,7 +154,7 @@ public class JythonPath {
 	 * @return jyPaths Set containing all of the required plugins
 	 */
 	public static final Set<String> assembleJyPaths(File pluginsDir, boolean isRunningInEclipse) {
-        return assembleJyPaths(pluginsDir, null, isRunningInEclipse);
+		return assembleJyPaths(pluginsDir, null, isRunningInEclipse);
 	}
 	
 	/**
@@ -269,7 +269,7 @@ public class JythonPath {
 	 * @param isRunningInEclipse Boolean, true if running in eclipse
 	 * @return list of directories
 	 */
-	private static List<File> findDirs(File directory, Set<String> extras, boolean isRunningInEclipse) {
+	public static List<File> findDirs(File directory, Set<String> extras, boolean isRunningInEclipse) {
 		final List<File> plugins = new ArrayList<File>();
 		
 		// TODO This could be shortened code-wise (move for loop outside if), but that might be slower in execution
