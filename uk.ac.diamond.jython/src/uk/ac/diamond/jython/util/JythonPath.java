@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.dawb.common.util.eclipse.BundleUtils;
 import org.slf4j.Logger;
@@ -154,8 +155,8 @@ public class JythonPath {
 	 * @param isRunningInEclipse
 	 * @return jyPaths Set containing all of the required plugins
 	 */
-	public static final HashSet<String> assembleJyPaths(File pluginsDir, boolean isRunningInEclipse) {
-		final HashSet<String> jyPaths = new HashSet<String>();
+	public static final Set<String> assembleJyPaths(File pluginsDir, boolean isRunningInEclipse) {
+		final Set<String> jyPaths = new HashSet<String>();
 		
 		//Find third party jar files & add them all
 		final List<File> thirdPartyJars = findJars(pluginsDir);
