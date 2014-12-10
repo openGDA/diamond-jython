@@ -128,7 +128,7 @@ public class JythonPath {
 	 * @return directory path 
 	 * @throws Exception when JYTHON_BUNDLE_LOC is not set (and no Jython bundle found)
 	 */
-	public static File getInterpreterDirectory() throws Exception {
+	public static File getInterpreterDirectory(boolean isRunningInEclipse) throws Exception {
 		File jyBundleLoc = null;
 		try {
 			jyBundleLoc = BundleUtils.getBundleLocation(JYTHON_BUNDLE);
@@ -140,6 +140,12 @@ public class JythonPath {
 			jyBundleLoc = new File(System.getProperty(JYTHON_BUNDLE_LOC));
 		}
 		jyBundleLoc = new File(jyBundleLoc, JYTHON_DIR);
+		
+		//Test whether we're running in 
+		if (!(isRunningInEclipse) && ((jyBundleLoc.getAbsolutePath().contains(GIT_REPO_ENDING))||(jyBundleLoc.getAbsolutePath().contains(GIT_REPO_ENDING)))) {
+			logger.error("Using jython from git, but -Drun.in.eclipse set false. This will cause errors.");
+			return null;
+		}
 		logger.info("Jython bundle found at: {}", jyBundleLoc);
 		return jyBundleLoc;
 	}
