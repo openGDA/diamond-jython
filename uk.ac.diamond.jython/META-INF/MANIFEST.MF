@@ -104,8 +104,4 @@ Export-Package: com.ziclix.python.sql;version="2.5.3",
  org.python.tests.multihidden;version="2.5.3",
  org.python.tests.props;version="2.5.3",
  org.python.util;version="2.5.3",
- org.w3c.dom.html;version="2.5.3",
- uk.ac.diamond.jython.util
-Import-Package: org.dawb.common.util.eclipse,
- org.osgi.framework;version="1.7.0",
- org.slf4j;version="1.7.6"
+ org.w3c.dom.html;version="2.5.3"
