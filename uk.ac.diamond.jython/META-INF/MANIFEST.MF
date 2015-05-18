@@ -4,7 +4,7 @@ Bundle-Name: Jython Plug-in
 Bundle-SymbolicName: uk.ac.diamond.jython;singleton:=true
 Bundle-Version: 2.5.3.qualifier
 Bundle-Vendor: Diamond Light Source
-Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+Bundle-RequiredExecutionEnvironment: JavaSE-1.7
 Bundle-ClassPath: jython2.5/jython.jar,
  .
 Export-Package: com.ziclix.python.sql;version="2.5.3",
