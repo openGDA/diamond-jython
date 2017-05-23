@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Jython Spring visibility fragment
+Bundle-SymbolicName: uk.ac.diamond.jython.fragment.spring;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-1.7
+Fragment-Host: uk.ac.diamond.jython;bundle-version="2.7.1"
+Require-Bundle: uk.ac.diamond.org.springframework;bundle-version="4.0.6"
+Bundle-ClassPath: .
+Bundle-Vendor: Diamond Light Source
+

@@ -376,4 +376,3 @@ Export-Package: org.python;version="2.7.1.b3",
  org.python.tests.multihidden;version="2.7.1.b3",
  org.python.tests.props;version="2.7.1.b3",
  org.python.util;version="2.7.1.b3"
-Require-Bundle: uk.ac.diamond.org.springframework;bundle-version="4.0.6"
