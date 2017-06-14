@@ -1,8 +1,3 @@
-Comment: **********************************************************************
- This bundle includes a dependency on the Spring framework so that any objects
- that utilise Spring AOP features can still be wrapped into 'Python' objects
- by the Jython infrastructure in GDA 9+.
- ******************************************************************************
 Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: Jython Plug-in
