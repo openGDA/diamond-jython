@@ -7,7 +7,15 @@ Bundle-Vendor: Diamond Light Source
 Bundle-RequiredExecutionEnvironment: JavaSE-1.7
 Bundle-ClassPath: jython2.7/jython.jar,
  .
-DynamicImport-Package: *
+DynamicImport-PackageComment: The approach used here is needed to handle split packages. In theory the header should
+ need to be "*;merged=true, *" i.e. first try to find any supplier were merged=true (to preferentially find the split
+ package resolver) then find from any supplier. However this does not work, I think due to a equinox bug (reported
+ https://bugs.eclipse.org/bugs/show_bug.cgi?id=528281). So the approach used is to import with as general a pacakge
+ specifier as possible where merged=true and then fall back to any supplier.
+DynamicImport-Package: gda.*;merged=true,
+ uk.ac.diamond.*;merged=true,
+ uk.ac.gda.*;merged=true,
+ *
 Export-Package: org.python;version="2.7.1",
  org.python.antlr;version="2.7.1",
  org.python.antlr.adapter;version="2.7.1",
