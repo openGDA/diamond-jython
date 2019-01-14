@@ -20,3 +20,4 @@ Export-Package: org.python.core;version="2.7.1",
  org.python.core.packagecache;version="2.7.1",
  org.python.expose;version="2.7.1",
  org.python.util;version="2.7.1"
+Automatic-Module-Name: uk.ac.diamond.jython
