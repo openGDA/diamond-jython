@@ -4,7 +4,7 @@ Bundle-Name: Jython Plug-in
 Bundle-SymbolicName: uk.ac.diamond.jython;singleton:=true
 Bundle-Version: 2.7.1
 Bundle-Vendor: Diamond Light Source
-Bundle-RequiredExecutionEnvironment: JavaSE-1.7
+Bundle-RequiredExecutionEnvironment: JavaSE-1.8
 Bundle-ClassPath: jython2.7/jython.jar,
  .
 DynamicImport-PackageComment: The approach used here is needed to handle split packages. In theory the header should
