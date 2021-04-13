@@ -1,9 +1,10 @@
-// Copyright (c)2019 Jython Developers
 /*
  * Jython Database Specification API 2.0
+ *
+ *
  * Copyright (c) 2001 brian zimmer <bzimmer@ziclix.com>
+ *
  */
-// Licensed to the PSF under a Contributor Agreement
 package com.ziclix.python.sql.util;
 
 import org.python.core.ClassDictInit;
@@ -67,7 +68,7 @@ public class BCP extends PyObject implements ClassDictInit, Traverseproc {
         this.batchsize = batchsize;
         this.queuesize = 0;
     }
-
+    
     /**
      * Field __methods__
      */
@@ -98,7 +99,6 @@ public class BCP extends PyObject implements ClassDictInit, Traverseproc {
      *
      * @return a string representation of the object.
      */
-    @Override
     public String toString() {
         return "<BCP object instance at " + hashCode() + ">";
     }
@@ -109,7 +109,6 @@ public class BCP extends PyObject implements ClassDictInit, Traverseproc {
      * @param name
      * @param value
      */
-    @Override
     public void __setattr__(String name, PyObject value) {
 
         if ("destinationDataHandler".equals(name)) {
@@ -131,7 +130,6 @@ public class BCP extends PyObject implements ClassDictInit, Traverseproc {
      * @param name
      * @return the attribute for the given name
      */
-    @Override
     public PyObject __findattr_ex__(String name) {
 
         if ("destinationDataHandler".equals(name)) {
@@ -208,7 +206,7 @@ public class BCP extends PyObject implements ClassDictInit, Traverseproc {
 }
 
 /**
- * Copyright 2001 brian zimmer
+ * @copyright 2001 brian zimmer
  */
 class BCPFunc extends PyBuiltinMethodSet {
 
@@ -226,7 +224,6 @@ class BCPFunc extends PyBuiltinMethodSet {
      * @param arg
      * @return PyObject
      */
-    @Override
     public PyObject __call__(PyObject arg) {
 
         BCP bcp = (BCP) __self__;
@@ -249,7 +246,6 @@ class BCPFunc extends PyBuiltinMethodSet {
         }
     }
 
-    @Override
     public PyObject __call__(PyObject arga, PyObject argb) {
 
         BCP bcp = (BCP) __self__;
@@ -273,7 +269,6 @@ class BCPFunc extends PyBuiltinMethodSet {
         }
     }
 
-    @Override
     public PyObject __call__(PyObject arga, PyObject argb, PyObject argc) {
 
         BCP bcp = (BCP) __self__;
@@ -297,7 +292,6 @@ class BCPFunc extends PyBuiltinMethodSet {
         }
     }
 
-    @Override
     public PyObject __call__(PyObject[] args, String[] keywords) {
 
         BCP bcp = (BCP) __self__;

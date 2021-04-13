@@ -1,5 +1,4 @@
 import array
-import os
 import unittest
 import subprocess
 import sys
@@ -239,40 +238,12 @@ class CoercionTest(unittest.TestCase):
 
 class RespectJavaAccessibilityTest(unittest.TestCase):
 
-    def setUp(self):
-        self.command = [sys.executable]
-
-    # NOTE: from Java 9 onwards, the JVM will complain about (but by default still allow)
-    # reflective access that does not respect Java accessibility rules. In order to avoid:
-    #   WARNING: Illegal reflective access by org.python.core.PyJavaType ... 
-    # and a threat that "illegal access operations will be denied in a future release",
-    # we add --add-opens specifications for all the packages needed in this test.
-
-    def add_opens(self, module, package):
-        self.command.append("-J--add-opens")
-        self.command.append("-J{}/{}=ALL-UNNAMED".format(module, package))
-
     def run_accessibility_script(self, script, error=AttributeError):
         fn = test_support.findfile(script)
-        # Check expected error in current environment
         self.assertRaises(error, execfile, fn)
-
-        # Prepare to break the rules
-        self.command.append("-J-Dpython.cachedir.skip=true")
-        self.command.append("-J-Dpython.security.respectJavaAccessibility=false")
-        if test_support.get_java_version() >= (9,):
-            # See all the cases for which we have forgotten --add-opens
-            self.command.append("-J--illegal-access=warn")
-            # Open the packages used in the scripts
-            self.add_opens("java.desktop", "java.awt.geom")
-            for package in ("lang", "util", "nio", "nio.charset"):
-                self.add_opens("java.base", "java." + package)
-            if test_support.get_java_version() >= (12,):
-                self.add_opens("java.base", "java.lang.constant")
-
-        self.command.append(fn)
-        self.assertEquals(subprocess.call(self.command), 0)
-
+        self.assertEquals(subprocess.call([sys.executable, "-J-Dpython.cachedir.skip=true",
+            "-J-Dpython.security.respectJavaAccessibility=false", fn]),
+            0)
 
     def test_method_access(self):
         self.run_accessibility_script("call_protected_method.py")
@@ -289,9 +260,7 @@ class RespectJavaAccessibilityTest(unittest.TestCase):
 class ClassloaderTest(unittest.TestCase):
 
     def test_loading_classes_without_import(self):
-        # Look for the Callbacker class ONLY in the special JAR
-        jar = os.path.join(sys.prefix, "callbacker_test.jar")
-        cl = test_support.make_jar_classloader(jar, None)
+        cl = test_support.make_jar_classloader("../callbacker_test.jar")
         X = cl.loadClass("org.python.tests.Callbacker")
         called = []
         class Blah(X.Callback):

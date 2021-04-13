@@ -29,8 +29,7 @@ public class ZeroByteBuffer extends BaseArrayBuffer {
      * @param obj exporting object (or <code>null</code>)
      * @param readonly set true if not to be considered writable
      * @param hasArray set true if to be considered as backed by an array
-     * @throws PyException {@code BufferError} when client expectations do not correspond with the
-     *             type
+     * @throws PyException (BufferError) when client expectations do not correspond with the type
      */
     public ZeroByteBuffer(int flags, BufferProtocol obj, boolean readonly, boolean hasArray)
             throws PyException {

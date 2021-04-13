@@ -475,8 +475,9 @@ public class cmath {
      * Helper to compute either cos <i>z</i> or cosh <i>z</i>.
      *
      * @param z
-     * @param h <code>true</code> for cosh, <code>false</code> for cos.
-     * @return cos <i>z</i> or cosh <i>z</i>
+     * @param h <code>true</code> to compute cosh <i>z</i>, <code>false</code> to compute cos
+     *            <i>z</i>.
+     * @return
      */
     private static PyComplex cosOrCosh(PyComplex z, boolean h) {
         double x, y, u, v;
@@ -630,7 +631,7 @@ public class cmath {
      *
      * @param r radius
      * @param phi angle
-     * @return <i>r</i>e<sup><i>i&phi;</i></sup>
+     * @return
      */
     public static PyComplex rect(double r, double phi) {
         double x, y;
@@ -827,8 +828,9 @@ public class cmath {
      * Helper to compute either sin <i>z</i> or sinh <i>z</i>.
      *
      * @param z
-     * @param h <code>true</code> for sinh, <code>false</code> for sin.
-     * @return sinh <i>z</i> or sin <i>z</i>.
+     * @param h <code>true</code> to compute sinh <i>z</i>, <code>false</code> to compute sin
+     *            <i>z</i>.
+     * @return
      */
     private static PyComplex sinOrSinh(PyComplex z, boolean h) {
         double x, y, u, v;
@@ -1131,7 +1133,7 @@ public class cmath {
      * @param arg to include in check
      * @return result if <code>arg</code> was <code>NaN</code> or <code>result</code> was not
      *         <code>NaN</code>
-     * @throws PyException {@code ValueError} if <code>result</code> was <code>NaN</code> and
+     * @throws PyException (ValueError) if <code>result</code> was <code>NaN</code> and
      *             <code>arg</code> was not <code>NaN</code>
      */
     private static PyComplex exceptNaN(PyComplex result, PyComplex arg) throws PyException {

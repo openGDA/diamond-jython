@@ -56,24 +56,16 @@ is_jython_posix = is_jython and (os._name == 'posix')
 
 if is_jython:
     def get_java_version(version=None):
-        """return a tuple of int encoding the Java version (as in java.version).
-
-        "1.8.0_121" -> (1, 8, 0, 121)
-        "9.0.4" -> (9, 0, 4)
-        "11" -> (11,)
-        "12-ea" -> (12,)
-        This parses strings (java.version properties) that conform to:
-        http://www.oracle.com/technetwork/java/javase/versioning-naming-139433.html
-        and http://openjdk.java.net/jeps/223 (but doesn't validate them).
-        """
+        # returns (1, 8, 0, 121) for version = "1.8.0_121", meaning
+        # Java 8 update 121, etc.. Conforms to:
+        # http://www.oracle.com/technetwork/java/javase/versioning-naming-139433.html
+        # and not yet http://openjdk.java.net/jeps/223 .
         if version is None:
             version = platform.java_ver()[0]
-        version = version.split('-')[0]     # discard optional pre-release indicator
-        parts = version.split('_')          # pre-JEP-223 format like 1.8.0_121
-        parts[0:1] = parts[0].split('.')
-        try:
-            return tuple(int(x) for x in parts)
-        except:
+        parse = re.match("(\d+)\.(\d+)\.(\d+)_(\d+)", version)
+        if parse:
+            return tuple((int(x) for x in parse.groups()))
+        else:
             return ()
 
 
@@ -495,7 +487,7 @@ def u(s):
     return unicode(s, 'unicode-escape')
 
 if is_jython:
-    def make_jar_classloader(jar, parent=False):
+    def make_jar_classloader(jar):
         import os
         from java.net import URL, URLClassLoader
         from java.io import File
@@ -516,10 +508,7 @@ if is_jython:
                 # better fix
                 conn.setDefaultUseCaches(False)
 
-        if parent is False:
-            return URLClassLoader([url])
-        else:
-            return URLClassLoader([url], parent)
+        return URLClassLoader([url])
 
 # Filename used for testing
 if is_jython:
@@ -590,10 +579,6 @@ del fp
 # Disambiguate TESTFN for parallel testing, while letting it remain a valid
 # module name.
 TESTFN = "{}_{}_tmp".format(TESTFN, "1") #XXX "1" is a dummy for os.getpid()
-
-# Define the URL of a dedicated HTTP server for the network tests.
-# The URL must use clear-text HTTP: no redirection to encrypted HTTPS.
-TEST_HTTP_URL = "http://www.pythontest.net"
 
 # Save the initial cwd
 SAVEDCWD = os.getcwd()
@@ -1127,35 +1112,6 @@ def run_with_locale(catstr, *locales):
         inner.__doc__ = func.__doc__
         return inner
     return decorator
-
-#=======================================================================
-# Reset locale to C / POSIX locale. In Jython to date the default locale
-# has been Locale.getDefaultLocale(), ie OS determined
-# The new locale.setlocale() support is in beta and off by default,
-# but some tests need the changes it introduces to pass.
-# It requires certain "startup" initialization corresponding to
-# -J-Dpython.locale.control=settable which is hard to simulate in a unit
-# test. To see the calling test pass without the reload throat-clearing,
-# invoke Jython with python.locale.control=settable on the command line, 
-# in either direct or regrtest flavours.
-# Use of this function can be removed from most tests once 
-# locale.setlocale() support is on by default
-def force_reset_locale(initialize=True):
-    import locale
-    if initialize:
-        from datetime import datetime
-        import time
-        from java.lang import System
-        System.setProperty('python.locale.control','settable')
-        import _locale
-        reload(_locale)
-        reload(locale)
-        # Trigger date format cache reload - need lang change
-        import _strptime
-        locale.setlocale(locale.LC_ALL,'de_DE')
-        _strptime._strptime('16', '%d') # numbers more portable hopefully
-    locale.setlocale(locale.LC_ALL,'C')
-
 
 #=======================================================================
 # Big-memory-test support. Separate from 'resources' because memory use should be configurable.

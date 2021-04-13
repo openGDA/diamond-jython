@@ -391,22 +391,6 @@ def raises_java_exception(method_or_function):
                 args[0]._last_error = 0
     return handle_exception
 
-def _fsencode(name):
-    """Ensure that a name that may be given as a unicode object (e.g. returned
-    from Java) is converted to the expected bytes representation using the
-    file-system encoding."""
-    if isinstance(name, unicode):
-        return name.encode(sys.getfilesystemencoding())
-    return name
-
-def _fsdecode(name):
-    """Ensure that a name that may be given as a bytes object (normal for
-    Python) is converted to the Unicode representation (e.g for Java) using the
-    file-system encoding."""
-    if isinstance(name, bytes):
-        return unicode(name, sys.getfilesystemencoding())
-    return name
-
 
 # select support
 ################
@@ -1888,13 +1872,11 @@ def getfqdn(name=None):
 
 @raises_java_exception
 def gethostname():
-    """Return FS-encoded local host name."""
-    return _fsencode(InetAddress.getLocalHost().getHostName())
+    return str(InetAddress.getLocalHost().getHostName())
 
 @raises_java_exception
 def gethostbyname(name):
-    """Return IP address as string from FS-decoded host name."""
-    return str(InetAddress.getByName(_fsdecode(name)).getHostAddress())
+    return str(InetAddress.getByName(name).getHostAddress())
 
 #
 # Skeleton implementation of gethostbyname_ex
@@ -2064,7 +2046,7 @@ class _fileobject(object):
         return self._sock.fileno()
 
     def write(self, data):
-        data = str(data) # XXX Should really reject non-byte non-buffers
+        data = str(data) # XXX Should really reject non-string non-buffers
         if not data:
             return
         self._wbuf.append(data)

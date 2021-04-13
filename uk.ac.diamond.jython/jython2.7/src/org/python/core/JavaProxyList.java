@@ -1,5 +1,12 @@
 package org.python.core;
 
+/**
+ * Proxy Java objects implementing java.util.List with Python methods
+ * corresponding to the standard list type
+ */
+
+import org.python.util.Generic;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -9,12 +16,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 
-import org.python.util.Generic;
 
-/**
- * Proxy Java objects implementing java.util.List with Python methods corresponding to the standard
- * list type
- */
 class JavaProxyList {
 
     @Untraversable
@@ -33,72 +35,12 @@ class JavaProxyList {
 
         protected List newList() {
             try {
-                return (List) asList().getClass().getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException | SecurityException
-                    | IllegalArgumentException e) {
+                return (List) asList().getClass().newInstance();
+            } catch (IllegalAccessException e) {
+                throw Py.JavaError(e);
+            } catch (InstantiationException e) {
                 throw Py.JavaError(e);
             }
-        }
-
-        /**
-         * Compares this object with other to check for equality. Used to implement __eq __ and
-         * __ne__. May return null if the other object cannot be compared i.e. is not a Python list
-         * or Java List.
-         *
-         * @param other The object to compare to this
-         * @return true is equal, false if not equal and null if we can't compare
-         */
-        protected PyBoolean isEqual(PyObject other) {
-            if (isPyList(other)) {
-                // Being compared to a Python list
-                PyList oList = (PyList) other;
-                List jList = asList();
-                if (jList.size() != oList.size()) {
-                    // Size mismatched so not equal
-                    return Py.False;
-                }
-                for (int i = 0; i < jList.size(); i++) {
-                    // Do element by element comparison, if any elements are not equal return false
-                    if (!Py.java2py(jList.get(i))._eq(oList.pyget(i)).__nonzero__()) {
-                        return Py.False;
-                    }
-                }
-                // All elements are equal so the lists are equal
-                return Py.True;
-            } else {
-                // Being compared to something that is not a Python list
-                Object oj = other.getJavaProxy();
-                if (oj instanceof List) {
-                    // Being compared to a Java List
-                    List oList = (List) oj;
-                    List jList = asList();
-                    if (jList.size() != oList.size()) {
-                        // Size mismatched so not equal
-                        return Py.False;
-                    }
-                    for (int i = 0; i < jList.size(); i++) {
-                        /*
-                         * Do element by element comparison, if any elements are not equal return
-                         * false.
-                         */
-                        if (!Py.java2py(jList.get(i))._eq(Py.java2py(oList.get(i))).__nonzero__()) {
-                            return Py.False;
-                        }
-                    }
-                    // All elements are equal so the lists are equal
-                    return Py.True;
-                } else {
-                    /*
-                     * other is not a Python or Java list, so we don't know if were equal therefore
-                     * return null.
-                     */
-                    return null;
-                }
-            }
-        }
-
-        private boolean isPyList(PyObject object) {
-            return object.getType().isSubType(PyList.TYPE);
         }
     }
 
@@ -128,9 +70,8 @@ class JavaProxyList {
             int n = PySequence.sliceLength(start, stop, step);
             List newList;
             try {
-                newList = list.getClass().getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException | SecurityException
-                    | IllegalArgumentException e) {
+                newList = list.getClass().newInstance();
+            } catch (Exception e) {
                 throw Py.JavaError(e);
             }
             int j = 0;
@@ -316,7 +257,6 @@ class JavaProxyList {
             this.cmp = cmp;
         }
 
-        @Override
         public int compare(KV o1, KV o2) {
             int result;
             if (cmp != null && cmp != Py.None) {
@@ -334,7 +274,6 @@ class JavaProxyList {
             return result;
         }
 
-        @Override
         public boolean equals(Object o) {
             if (o == this) {
                 return true;
@@ -400,23 +339,38 @@ class JavaProxyList {
     private static final PyBuiltinMethodNarrow listEqProxy = new ListMethod("__eq__", 1) {
         @Override
         public PyObject __call__(PyObject other) {
-            return isEqual(other);
-        }
-    };
-
-    private static final PyBuiltinMethodNarrow listNeProxy = new ListMethod("__ne__", 1) {
-        @Override
-        public PyObject __call__(PyObject other) {
-            // isEqual may return null if we don't know how to compare to other.
-            PyBoolean equal = isEqual(other);
-            if (equal != null) {
-                // implement NOT equal by the inverse of equal
-                return equal.__not__();
+            List jList = asList();
+            if (other.getType().isSubType(PyList.TYPE)) {
+                PyList oList = (PyList) other;
+                if (jList.size() != oList.size()) {
+                    return Py.False;
+                }
+                for (int i = 0; i < jList.size(); i++) {
+                    if (!Py.java2py(jList.get(i))._eq(oList.pyget(i)).__nonzero__()) {
+                        return Py.False;
+                    }
+                }
+                return Py.True;
+            } else {
+                Object oj = other.getJavaProxy();
+                if (oj instanceof List) {
+                    List oList = (List) oj;
+                    if (jList.size() != oList.size()) {
+                        return Py.False;
+                    }
+                    for (int i = 0; i < jList.size(); i++) {
+                        if (!Py.java2py(jList.get(i))._eq(
+                                Py.java2py(oList.get(i))).__nonzero__()) {
+                            return Py.False;
+                        }
+                    }
+                    return Py.True;
+                } else {
+                    return null;
+                }
             }
-            return null;
         }
     };
-
     private static final PyBuiltinMethodNarrow listAppendProxy = new ListMethod("append", 1) {
         @Override
         public PyObject __call__(PyObject value) {
@@ -554,9 +508,10 @@ class JavaProxyList {
             List jList = asList();
             List jClone;
             try {
-                jClone = (List) jList.getClass().getDeclaredConstructor().newInstance();
-            } catch (ReflectiveOperationException | SecurityException
-                    | IllegalArgumentException e) {
+                jClone = (List) jList.getClass().newInstance();
+            } catch (IllegalAccessException e) {
+                throw Py.JavaError(e);
+            } catch (InstantiationException e) {
                 throw Py.JavaError(e);
             }
             for (Object entry : jList) {
@@ -663,7 +618,6 @@ class JavaProxyList {
                 listGetProxy,
                 listSetProxy,
                 listEqProxy,
-                listNeProxy,
                 listRemoveProxy,
                 listAppendProxy,
                 listExtendProxy,

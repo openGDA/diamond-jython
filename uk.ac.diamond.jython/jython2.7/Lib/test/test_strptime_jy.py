@@ -1,14 +1,8 @@
-# Java locale differences from JDK 9 onwards, and locale variation on
-# developer machines, break test_strptime tests. This manifests more on Windows.
-# Rather than diverge from the Python source, this overrides with extra locale
-# setup.
-# Merging back into CPython is desirable, but is a bigger discussion around
-# library merging generally.
+# merge into upstream test_strptime.py at some point
 
 import unittest
 from datetime import datetime
 from time import strptime
-from test.test_strptime import *
 from test import test_support
 
 
@@ -32,23 +26,11 @@ class ParsingTests(unittest.TestCase):
         d = strptime('1', '%d')
         self.assertEqual(1900, d.tm_year)
 
-
-def test_main(initialize=True):
-    test_support.force_reset_locale(initialize)
-
+def test_main():
     test_support.run_unittest(
-        getlang_Tests,
-        LocaleTime_Tests,
-        TimeRETests,
-        StrptimeTests,
-        Strptime12AMPMTests,
-        JulianTests,
-        CalculationTests,
-        CacheTests,
         ParsingTests
     )
 
 
 if __name__ == '__main__':
-    test_main(initialize=False)
-
+    test_main()

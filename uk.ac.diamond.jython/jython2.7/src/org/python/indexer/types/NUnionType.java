@@ -17,12 +17,11 @@ import java.util.Set;
 public class NUnionType extends NType {
 
     /**
-     * Union types can lead to infinite recursion in the occurs check. Until we've got a handle on
-     * these cases, I'm limiting the recursion depth.
+     * Union types can lead to infinite recursion in the occurs check.  Until
+     * we've got a handle on these cases, I'm limiting the recursion depth.
      *
-     * @see <a href=
-     *      "http://www.cs.kuleuven.ac.be/~dtai/projects/ALP/newsletter/archive_93_96/net/impl/occur.html">
-     *      The Occurs Check</a> for an interesting and highly relevant discussion.
+     * @see http://www.cs.kuleuven.ac.be/~dtai/projects/ALP/newsletter/archive_93_96/net/impl/occur.html
+     *      for an interesting and highly relevant discussion.
      */
     private static final int MAX_RECURSION_DEPTH = 15;
 
@@ -134,7 +133,7 @@ public class NUnionType extends NType {
     }
 
     /**
-     * @see <a href="http://en.wikipedia.org/wiki/Occurs_check">Occurs check</a>
+     * @see http://en.wikipedia.org/wiki/Occurs_check
      */
     private static boolean occurs(NType u, NType v, int depth) {
         if (depth++ > MAX_RECURSION_DEPTH) {
@@ -211,7 +210,7 @@ public class NUnionType extends NType {
 
     /**
      * Returns the first alternate whose type is not unknown and
-     * is not {@code Indexer#idx.builtins.None}.
+     * is not {@link Indexer.idx.builtins.None}.
      * @return the first non-unknown, non-{@code None} alternate, or {@code null} if none found
      */
     public NType firstKnownNonNullAlternate() {

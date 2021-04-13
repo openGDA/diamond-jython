@@ -785,7 +785,7 @@ public class __builtin__ {
      *
      * @param c string-like object of length 1
      * @return ordinal value of character or byte value in
-     * @throws PyException {@code TypeError} if not a string-like type
+     * @throws PyException (TypeError) if not a string-like type
      */
     public static final int ord(PyObject c) throws PyException {
         final int length;
@@ -1267,22 +1267,17 @@ class ImportFunction extends PyBuiltinFunction {
               "is the number of parent directories to search relative to the current module.");
     }
 
-    private static final String[] ARGS = {"name", "globals", "locals", "fromlist", "level"};
-
     @Override
     public PyObject __call__(PyObject args[], String keywords[]) {
-        ArgParser ap = new ArgParser("__import__", args, keywords, ARGS, 1);
-        PyObject module = ap.getPyObject(0);
-        String name;
-        if (module instanceof PyUnicode) {
-            name = ((PyUnicode) module).encode("ascii").toString();
-        } else {
-            name = ap.getString(0);
-        }
+        ArgParser ap = new ArgParser("__import__", args, keywords,
+                                     new String[] {"name", "globals", "locals", "fromlist",
+                                                   "level"},
+                                     1);
+        String module = ap.getString(0);
         PyObject globals = ap.getPyObject(1, null);
         PyObject fromlist = ap.getPyObject(3, Py.EmptyTuple);
         int level = ap.getInt(4, imp.DEFAULT_LEVEL);
-        return imp.importName(name.intern(), fromlist == Py.None || fromlist.__len__() == 0,
+        return imp.importName(module.intern(), fromlist == Py.None || fromlist.__len__() == 0,
                               globals, fromlist, level);
     }
 }

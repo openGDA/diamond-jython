@@ -12,10 +12,12 @@
 // see org/python/modules/time.java for previous history.
 package org.python.modules.time;
 
+import java.text.DateFormatSymbols;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.GregorianCalendar;
+import java.util.Locale;
 import java.util.TimeZone;
 
 import org.python.core.ClassDictInit;
@@ -26,11 +28,8 @@ import org.python.core.PyInteger;
 import org.python.core.PyObject;
 import org.python.core.PyString;
 import org.python.core.PyTuple;
-import org.python.core.Untraversable;
 import org.python.core.__builtin__;
-import org.python.modules._locale.DateSymbolLocale;
-import org.python.modules._locale._locale;
-
+import org.python.core.Untraversable;
 
 @Untraversable
 class TimeFunctions extends PyBuiltinFunctionSet
@@ -227,15 +226,12 @@ public class Time implements ClassDictInit
     }
 
     private static GregorianCalendar _tupletocal(PyTuple tup) {
-        GregorianCalendar gc = new GregorianCalendar(item(tup, 0),
-                                                     item(tup, 1),
-                                                     item(tup, 2),
-                                                     item(tup, 3),
-                                                     item(tup, 4),
-                                                     item(tup, 5));
-                                                     
-        gc.setGregorianChange(new Date(Long.MIN_VALUE));
-        return gc;
+        return new GregorianCalendar(item(tup, 0),
+                                     item(tup, 1),
+                                     item(tup, 2),
+                                     item(tup, 3),
+                                     item(tup, 4),
+                                     item(tup, 5));
     }
 
     public static double mktime(PyTuple tup) {
@@ -258,8 +254,6 @@ public class Time implements ClassDictInit
     protected static PyTimeTuple _timefields(double secs, TimeZone tz) {
         GregorianCalendar cal = new GregorianCalendar(tz);
         cal.clear();
-        cal.setGregorianChange(new Date(Long.MIN_VALUE));
-
         secs = secs * 1000;
         if (secs < Long.MIN_VALUE || secs > Long.MAX_VALUE) {
             throw Py.ValueError("timestamp out of range for platform time_t");
@@ -330,11 +324,11 @@ public class Time implements ClassDictInit
     }
 
     // Python's time module specifies use of current locale
-    protected static DateSymbolLocale datesyms = _locale.getDateSymbolLocale();
+    protected static Locale currentLocale = null;
+    protected static DateFormatSymbols datesyms = new DateFormatSymbols();
     protected static String[] shortdays = null;
     protected static String[] shortmonths = null;
 
-    // Consider moving to CEmulationLocale, where there is another copy
     private static String[] enshortdays = new String[] {"Mon",
                                                         "Tue",
                                                         "Wed",
@@ -376,7 +370,7 @@ public class Time implements ClassDictInit
     }
 
     private synchronized static String _shortmonth(int month0to11) {
-        // getShortMonths() returns a 13 element array with the last item
+        // getShortWeekdays() returns a 13 element array with the last item
         // being the empty string.  This is also undocumented ;-/
         if (shortmonths == null) {
             shortmonths = new String[12];
@@ -634,16 +628,13 @@ public class Time implements ClassDictInit
                 // locale is set by user.language and user.region
                 // properties and is "en_US" by default, at least around
                 // here!  Locale "en_US" differs from locale "C" in the way
-                // it represents dates and times.  Beta support for a "C" 
-                // locale is in org.python.modules._locale.CEmulationLocale 
+                // it represents dates and times.  Eventually we might want
+                // to craft a "C" locale for Java and set Jython to use
+                // this by default, but that's too much work right now.
                 //
-                // For now, we continue the historically hard coded pre-2.7.1
-                // %x and %X behaviour to return values formatted in the 
-                // "C" locale, i.e. the default way CPython does it. This 
-                // can be unified and simplified using CEmulationLocale once 
-                // native _locale support becomes the default in a future 
-                // version.
-                // E.g.:
+                // For now, we hard code %x and %X to return values
+                // formatted in the "C" locale, i.e. the default way
+                // CPython does it.  E.g.:
                 //     %x == mm/dd/yy
                 //     %X == HH:mm:SS
                 //
@@ -702,9 +693,9 @@ public class Time implements ClassDictInit
 
 
     private static void checkLocale() {
-        DateSymbolLocale latestLocale = _locale.getDateSymbolLocale();
-        if (!latestLocale.equals(datesyms)) {
-            datesyms = latestLocale;
+        if (!Locale.getDefault().equals(currentLocale)) {
+            currentLocale = Locale.getDefault();
+            datesyms = new DateFormatSymbols(currentLocale);
             shortdays = null;
             shortmonths = null;
         }
@@ -714,6 +705,10 @@ public class Time implements ClassDictInit
         return strptime(data_string, DEFAULT_FORMAT_PY);
     }
 
+    /**
+     * Calls _strptime.strptime(), for cases that our SimpleDateFormat backed
+     * strptime can't handle.
+     */
     private static PyTuple pystrptime(String data_string, String format) {
         return (PyTuple) __builtin__.__import__("_strptime")
                                     .invoke("_strptime_time",
@@ -728,4 +723,3 @@ public class Time implements ClassDictInit
     private static final String DEFAULT_FORMAT_PY = "%a %b %d %H:%M:%S %Y";
 
 }
-

@@ -231,30 +231,16 @@ class UnicodeTestCase(unittest.TestCase):
                             'sys.stdout.write(os.getenv("TEST_HOME"))'],
                     stdout=subprocess.PIPE,
                     env=newenv)
-            # Decode with FS encoding used by subprocess communication
+            # Decode with default encoding utf-8 (because ... ?)
             self.assertEqual(p.stdout.read().decode('utf-8'), expected)
 
     def test_getcwd(self):
         with test_support.temp_cwd(name=u"tempcwd-中文") as temp_cwd:
-            # os.getcwd reports the working directory as an FS-encoded str,
-            # which is also the encoding used in subprocess communication.
-            p = subprocess.Popen([
-                    sys.executable, "-c",
-                    'import sys,os;' \
-                    'sys.stdout.write(os.getcwd())'],
-                stdout=subprocess.PIPE)
-            self.assertEqual(p.stdout.read(), temp_cwd)
-
-    def test_getcwdu(self):
-        with test_support.temp_cwd(name=u"tempcwd-中文") as temp_cwd:
-            # os.getcwdu reports the working directory as unicode,
-            # which must be encoded for subprocess communication.
-            p = subprocess.Popen([
-                    sys.executable, "-c",
-                    'import sys,os;' \
-                    'sys.stdout.write(os.getcwdu().encode(sys.getfilesystemencoding()))'],
-                stdout=subprocess.PIPE)
-            self.assertEqual(p.stdout.read(), temp_cwd)
+            p = subprocess.Popen([sys.executable, "-c",
+                                  'import sys,os;' \
+                                  'sys.stdout.write(os.getcwd().encode("utf-8"))'],
+                                 stdout=subprocess.PIPE)
+            self.assertEqual(p.stdout.read().decode("utf-8"), temp_cwd)
 
     def test_listdir(self):
         # It is hard to avoid Unicode paths on systems like OS X. Use relative
@@ -322,18 +308,6 @@ class UnicodeTestCase(unittest.TestCase):
                     "File %r (%r) should be testable for existence" %
                     (f, entry_path))
 
-    def test_uname(self):
-        # Test that os.uname returns a tuple of (arbitrary) strings.
-        # uname failed on on a Chinese localised system (see
-        # https://bugs.jython.org/issue2726). This test really needs to
-        # run in that environment or it passes too easily.
-        result = os.uname()
-        # (sysname, nodename, release, version, machine)
-        self.assertEqual(type(result), tuple)
-        self.assertEqual(len(result), 5)
-        for s in result: self.assertEqual(type(s), str)
-
-
 class LocaleTestCase(unittest.TestCase):
 
     def get_installed_locales(self, codes, msg=None):
@@ -357,7 +331,6 @@ class LocaleTestCase(unittest.TestCase):
         return available_codes
 
     # must be on posix and turkish locale supported
-    @unittest.skipIf(not test_support.is_jython_posix, "Not posix")
     def test_turkish_locale_posix_module(self):
         # Verifies fix of http://bugs.jython.org/issue1874
         self.get_installed_locales(["tr_TR.UTF-8"], "Turkish locale not installed, cannot test")
@@ -386,8 +359,8 @@ class LocaleTestCase(unittest.TestCase):
             #
             # Note that JVMs seem to have some latitude here however, so support
             # either for now.
-            ["['i', u'\\u0131', 'I', u'\\u0130']" + os.linesep,
-             "['i', u'i', 'I', u'I']" + os.linesep])
+            ["['i', u'\\u0131', 'I', u'\\u0130']\n",
+             "['i', u'i', 'I', u'I']\n"])
 
     def test_strptime_locale(self):
         # Verifies fix of http://bugs.jython.org/issue2261
@@ -402,26 +375,20 @@ class LocaleTestCase(unittest.TestCase):
                     [sys.executable, "-c",
                      'import datetime; print(datetime.datetime.strptime("2015-01-22", "%Y-%m-%d"))'],
                     env=newenv),
-                "2015-01-22 00:00:00" + os.linesep)
+                "2015-01-22 00:00:00\n")
 
     def test_strftime_japanese_locale(self):
         # Verifies fix of http://bugs.jython.org/issue2301 - produces
         # UTF-8 encoded output per what CPython does, rather than Unicode.
         # We will revisit in Jython 3.x!
         self.get_installed_locales("ja_JP.UTF-8")
-        if test_support.get_java_version() < (10,):
-            expected = "'\\xe6\\x97\\xa5 3 29 14:55:13 2015'"
-        else:
-            # From Java 10 onwards, Japanese formatting more correctly includes
-            # 月, the kanji character for month
-            expected = "'\\xe6\\x97\\xa5 3\\xe6\\x9c\\x88 29 14:55:13 2015'"
         self.assertEqual(
             subprocess.check_output(
                 [sys.executable,
                  "-J-Duser.country=JP", "-J-Duser.language=ja",
                  "-c",
                  "import time; print repr(time.strftime('%c', (2015, 3, 29, 14, 55, 13, 6, 88, 0)))"]),
-            expected + os.linesep)
+            "'\\xe6\\x97\\xa5 3 29 14:55:13 2015'\n")
 
 
 class SystemTestCase(unittest.TestCase):

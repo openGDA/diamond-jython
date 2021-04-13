@@ -114,7 +114,7 @@ public class PyBeanEventProperty extends PyObject {
             return adapter;
         }
         try {
-            adapter = adapterClass.getDeclaredConstructor().newInstance();
+            adapter = adapterClass.newInstance();
             addMethod.invoke(self, adapter);
         } catch (Exception e) {
             throw Py.JavaError(e);

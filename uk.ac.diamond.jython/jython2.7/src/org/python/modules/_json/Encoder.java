@@ -1,12 +1,11 @@
 package org.python.modules._json;
 
-import org.python.core.AbstractDict;
 import org.python.core.ArgParser;
 import org.python.core.Py;
+import org.python.core.PyDictionary;
 import org.python.core.PyFloat;
 import org.python.core.PyInteger;
 import org.python.core.PyLong;
-import org.python.core.PyNewWrapper;
 import org.python.core.PyList;
 import org.python.core.PyObject;
 import org.python.core.PyString;
@@ -16,7 +15,6 @@ import org.python.core.PyUnicode;
 import org.python.core.Traverseproc;
 import org.python.core.Visitproc;
 import org.python.expose.ExposedGet;
-import org.python.expose.ExposedNew;
 import org.python.expose.ExposedType;
 
 @ExposedType(name = "_json.encoder", base = PyObject.class)
@@ -27,7 +25,7 @@ public class Encoder extends PyObject implements Traverseproc {
     @ExposedGet
     public final String __module__ = "_json";
 
-    final AbstractDict markers;
+    final PyDictionary markers;
     final PyObject defaultfn;
     final PyObject encoder;
     final PyObject indent;
@@ -38,17 +36,13 @@ public class Encoder extends PyObject implements Traverseproc {
     final boolean allow_nan;
 
     public Encoder(PyObject[] args, String[] kwds) {
-        this(TYPE, args, kwds);
-    }
-
-    public Encoder(PyType subtype, PyObject[] args, String[] kwds) {
-        super(subtype);
+        super();
         ArgParser ap = new ArgParser("encoder", args, kwds,
                 new String[]{"markers", "default", "encoder", "indent",
                         "key_separator", "item_separator", "sort_keys", "skipkeys", "allow_nan"});
         ap.noKeywords();
         PyObject m = ap.getPyObject(0);
-        markers = m == Py.None ? null : (AbstractDict) m;
+        markers = m == Py.None ? null : (PyDictionary) m;
         defaultfn = ap.getPyObject(1);
         encoder = ap.getPyObject(2);
         indent = ap.getPyObject(3);
@@ -57,16 +51,6 @@ public class Encoder extends PyObject implements Traverseproc {
         sort_keys = ap.getPyObject(6);
         skipkeys = ap.getPyObject(7).__nonzero__();
         allow_nan = ap.getPyObject(8).__nonzero__();
-    }
-
-    @ExposedNew
-    static PyObject Encoder___new__(PyNewWrapper new_, boolean init, PyType subtype,
-            PyObject[] args, String[] keywords) {
-        if (subtype == TYPE) {
-            return new Encoder(args, keywords);
-        } else {
-            return new EncoderDerived(subtype, args, keywords);
-        }
     }
 
     public PyObject __call__(PyObject obj) {
@@ -131,9 +115,8 @@ public class Encoder extends PyObject implements Traverseproc {
             rval.append(encode_float(obj));
         } else if (obj instanceof PyList || obj instanceof PyTuple) {
             encode_list(rval, obj, indent_level);
-        } else if (obj instanceof AbstractDict) {
-            /* Using AbstractDict instead of PyDictionary fixes http://bugs.jython.org/issue2622 */
-            encode_dict(rval, (AbstractDict) obj, indent_level);
+        } else if (obj instanceof PyDictionary) {
+            encode_dict(rval, (PyDictionary) obj, indent_level);
         } else {
             PyObject ident = checkCircularReference(obj);
             if (defaultfn == Py.None) {
@@ -148,7 +131,7 @@ public class Encoder extends PyObject implements Traverseproc {
         }
     }
 
-    private void encode_dict(PyList rval, AbstractDict dct, int indent_level) {
+    private void encode_dict(PyList rval, PyDictionary dct, int indent_level) {
         /* Encode Python dict dct a JSON term */
         if (dct.__len__() == 0) {
             rval.append(new PyString("{}"));

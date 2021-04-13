@@ -289,6 +289,7 @@ public class Issue1972 {
         // Run Jython simple readline programme
         setProcJava( //
                 "-Dpython.console=org.python.util.JLineConsole", //
+                // "-Dpython.console.interactive=True", //
                 "-Dpython.home=" + pythonHome, //
                 "org.python.util.jython", //
                 "-c", //

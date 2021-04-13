@@ -99,7 +99,7 @@ public class cStringIO {
     /**
      * The StringIO object
      * @see cStringIO#StringIO()
-     * @see cStringIO#StringIO(CharSequence)
+     * @see cStringIO#StringIO(String)
      */
     public static class StringIO extends PyIterator {
         public boolean softspace = false;
@@ -122,9 +122,8 @@ public class cStringIO {
         }
 
         private void _complain_ifclosed() {
-            if (closed) {
+            if (closed)
                 throw Py.ValueError("I/O operation on closed file");
-            }
         }
 
         private int _convert_to_int(long val) {
@@ -147,9 +146,8 @@ public class cStringIO {
         public PyObject __iternext__() {
             _complain_ifclosed();
             PyString r = readline();
-            if (r.__len__() == 0) {
+            if (r.__len__() == 0)
                 return null;
-            }
             return r;
         }
 
@@ -189,7 +187,7 @@ public class cStringIO {
 
         /**
          * Position the file pointer to the position in the .
-         *
+         * 
          * @param pos
          *            the position in the file.
          * @param mode
@@ -315,9 +313,8 @@ public class cStringIO {
             int newpos = (i < 0) ? len : i;
             String r = buf.substring(pos, newpos);
             pos = newpos;
-            if (pos  < len) {
+            if (pos  < len) // Skip the newline
                 pos++;
-            }
             return new PyString(r);
         }
 
@@ -346,9 +343,8 @@ public class cStringIO {
             while (line.__len__() > 0) {
                 lines.append(line);
                 total += line.__len__();
-                if (0 < sizehint_int  && sizehint_int <= total) {
+                if (0 < sizehint_int  && sizehint_int <= total)
                     break;
-                }
                 line = readline();
             }
             return lines;
@@ -371,9 +367,8 @@ public class cStringIO {
                 throw Py.IOError("Negative size not allowed");
             }
             int pos_int = _convert_to_int(pos);
-            if (pos_int < 0) {
+            if (pos_int < 0)
                 pos_int = this.pos;
-            }
             buf.setLength(pos_int);
             this.pos = pos_int;
         }
@@ -407,9 +402,8 @@ public class cStringIO {
                 int l = spos - slen;
                 char[] bytes = new char[l];
 
-                for (int i = 0; i < l - 1; i++) {
+                for (int i = 0; i < l - 1; i++)
                     bytes[i] = '\0';
-                }
 
                 buf.append(bytes);
                 slen = spos;
@@ -440,9 +434,8 @@ public class cStringIO {
          */
         public synchronized void writeChar(char ch) {
             int len = buf.length();
-            if (len <= pos) {
+            if (len <= pos)
                 buf.setLength(pos + 1);
-            }
             buf.setCharAt(pos++, ch);
         }
 

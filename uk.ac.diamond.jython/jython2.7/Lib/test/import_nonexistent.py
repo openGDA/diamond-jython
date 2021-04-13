@@ -1,6 +1,3 @@
-# Test material for:
-# SecurityManagerTest.test_nonexistent_import_with_security (test_java_integration.py)
-
 try:
     import nonexistent_module
 except ImportError:

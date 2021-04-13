@@ -13,9 +13,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.python.core.AbstractDict.ValuesIter;
-import org.python.core.AbstractDict.KeysIter;
-import org.python.core.AbstractDict.ItemsIter;
 import org.python.core.PyMapSet.PySetIter;
 import org.python.expose.ExposedClassMethod;
 import org.python.expose.ExposedMethod;
@@ -637,10 +634,9 @@ public class PyStringMap extends AbstractDict implements Traverseproc {
 
     @ExposedMethod(doc = BuiltinDocs.dict_keys_doc)
     final PyList stringmap_keys() {
-        Object[] keys = table.keySet().toArray();
-        PyObject[] keyArray = new PyObject[keys.length];
+        PyObject[] keyArray = new PyObject[table.size()];
         int i = 0;
-        for (Object key : keys) {
+        for (Object key : table.keySet()) {
             keyArray[i++] = keyToPy(key);
         }
         return new PyList(keyArray);
@@ -667,7 +663,7 @@ public class PyStringMap extends AbstractDict implements Traverseproc {
 
     @ExposedMethod(doc = BuiltinDocs.dict_iteritems_doc)
     final PyObject stringmap_iteritems() {
-        return new StringMapItemsIter(table.entrySet());
+        return new ItemsIter(table.entrySet());
     }
 
     /**
@@ -681,7 +677,7 @@ public class PyStringMap extends AbstractDict implements Traverseproc {
     final PyObject stringmap_iterkeys() {
         /* Python allows one to change the dict while iterating over it, including
            deletion. Java does not. Can we resolve with CHM? */
-        return new StringMapKeysIter(table.keySet());
+        return new KeysIter(table.keySet());
     }
 
     /**
@@ -716,50 +712,63 @@ public class PyStringMap extends AbstractDict implements Traverseproc {
         return false;
     }
 
-    private class StringMapValuesIter extends ValuesIter {
+    private abstract class StringMapIter<T> extends PyIterator {
+
+        protected final Iterator<T> iterator;
+
+        private final int size;
+
+        public StringMapIter(Collection<T> c) {
+            iterator = c.iterator();
+            size = c.size();
+        }
+
+        @Override
+        public PyObject __iternext__() {
+            if (table.size() != size) {
+                throw Py.RuntimeError("dictionary changed size during iteration");
+            }
+            if (!iterator.hasNext()) {
+                return null;
+            }
+            return stringMapNext();
+        }
+
+        protected abstract PyObject stringMapNext();
+    }
+
+    private class StringMapValuesIter extends StringMapIter<PyObject> {
 
         public StringMapValuesIter(Collection<PyObject> c) {
             super(c);
         }
 
         @Override
-        public PyObject __iternext__() {
-            check(table.size());
-            if (!iterator.hasNext()) {
-                return null;
-            }
+        public PyObject stringMapNext() {
             return iterator.next();
         }
     }
 
-    private class StringMapKeysIter extends KeysIter<Object> {
+    private class KeysIter extends StringMapIter<Object> {
 
-        public StringMapKeysIter(Set<Object> s) {
+        public KeysIter(Set<Object> s) {
             super(s);
         }
 
         @Override
-        public PyObject __iternext__() {
-            check(table.size());
-            if (!iterator.hasNext()) {
-                return null;
-            }
+        protected PyObject stringMapNext() {
             return keyToPy(iterator.next());
         }
     }
 
-    private class StringMapItemsIter extends ItemsIter<Object> {
+    private class ItemsIter extends StringMapIter<Entry<Object, PyObject>> {
 
-        public StringMapItemsIter(Set<Entry<Object, PyObject>> s) {
+        public ItemsIter(Set<Entry<Object, PyObject>> s) {
             super(s);
         }
 
         @Override
-        public PyObject __iternext__() {
-            check(table.size());
-            if (!iterator.hasNext()) {
-                return null;
-            }
+        public PyObject stringMapNext() {
             return itemTuple(iterator.next());
         }
     }

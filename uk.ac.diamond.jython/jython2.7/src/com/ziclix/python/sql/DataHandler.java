@@ -331,14 +331,14 @@ public class DataHandler {
                 throw createUnsupportedTypeSQLException("STRUCT", col);
                 
             default :
-                throw createUnsupportedTypeSQLException(Integer.valueOf(type), col);
+                throw createUnsupportedTypeSQLException(new Integer(type), col);
         }
 
         return set.wasNull() || obj == null ? Py.None : obj;
     }
 
     protected final SQLException createUnsupportedTypeSQLException(Object type, int col) {
-        Object[] vals = {type, Integer.valueOf(col)};
+        Object[] vals = {type, new Integer(col)};
         String msg = zxJDBC.getString("unsupportedTypeForColumn", vals);
         return new SQLException(msg);
     }

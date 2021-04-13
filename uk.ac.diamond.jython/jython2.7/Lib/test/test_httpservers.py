@@ -417,7 +417,10 @@ class CGIHTTPServerTestCase(BaseTestCase):
             os.chdir(self.cwd)
             if self.pythonexe != sys.executable:
                 os.remove(self.pythonexe)
-            test_support.rmtree(self.parent_dir)
+            os.remove(self.file1_path)
+            os.remove(self.file2_path)
+            os.rmdir(self.cgi_dir)
+            os.rmdir(self.parent_dir)
         finally:
             BaseTestCase.tearDown(self)
 
