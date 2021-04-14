@@ -16,8 +16,6 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.python.core.AbstractDict.ValuesIter;
-import org.python.core.AbstractDict.KeysIter;
-import org.python.core.AbstractDict.ItemsIter;
 import org.python.expose.ExposedClassMethod;
 import org.python.expose.ExposedMethod;
 import org.python.expose.ExposedNew;
@@ -778,7 +776,7 @@ public class PyDictionary extends AbstractDict implements ConcurrentMap, Travers
 
     @ExposedMethod(doc = BuiltinDocs.dict_iteritems_doc)
     final PyObject dict_iteritems() {
-        return new ItemsIter<PyObject>(getMap().entrySet());
+        return new ItemsIter(getMap().entrySet());
     }
 
     /**
@@ -790,7 +788,7 @@ public class PyDictionary extends AbstractDict implements ConcurrentMap, Travers
 
     @ExposedMethod(doc = BuiltinDocs.dict_iterkeys_doc)
     final PyObject dict_iterkeys() {
-        return new KeysIter<PyObject>(getMap().keySet());
+        return new ValuesIter(getMap().keySet());
     }
 
     /**
@@ -860,6 +858,27 @@ public class PyDictionary extends AbstractDict implements ConcurrentMap, Travers
     @ExposedMethod(doc = BuiltinDocs.dict_viewvalues_doc)
     public PyObject viewvalues() {
         return super.viewvalues();
+    }
+    
+    class ItemsIter extends PyIterator {
+
+        private final Iterator<Entry<PyObject, PyObject>> iterator;
+
+        private final int size;
+
+        public ItemsIter(Set<Entry<PyObject, PyObject>> items) {
+            iterator = items.iterator();
+            size = items.size();
+        }
+
+        @Override
+        public PyObject __iternext__() {
+            if (!iterator.hasNext()) {
+                return null;
+            }
+            Entry<PyObject, PyObject> entry = iterator.next();
+            return new PyTuple(entry.getKey(), entry.getValue());
+        }
     }
 
     public Set<PyObject> pyKeySet() {
@@ -990,7 +1009,7 @@ public class PyDictionary extends AbstractDict implements ConcurrentMap, Travers
 
         @ExposedMethod(doc = BuiltinDocs.set___iter___doc)
         final PyObject dict_keys___iter__() {
-            return new KeysIter<PyObject>(dvDict.pyKeySet());
+            return new ValuesIter(dvDict.pyKeySet());
         }
 
         @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.set___ne___doc)

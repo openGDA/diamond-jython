@@ -95,7 +95,7 @@ public class TemplateAntTask extends MatchingTask {
      * Verbose flag.
      */
     public void setVerbose(String in) {
-        verbose = (Boolean.valueOf(getProject().replaceProperties(in))).booleanValue();
+        verbose = (new Boolean(getProject().replaceProperties(in))).booleanValue();
     }
 
     /**
@@ -107,7 +107,7 @@ public class TemplateAntTask extends MatchingTask {
      * Lazy flag.
      */
     public void setLazy(String in) {
-        lazy = (Boolean.valueOf(getProject().replaceProperties(in))).booleanValue();
+        lazy = (new Boolean(getProject().replaceProperties(in))).booleanValue();
     }
 
     public void execute() {

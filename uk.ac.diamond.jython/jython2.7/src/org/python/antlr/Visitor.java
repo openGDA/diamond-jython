@@ -6,9 +6,8 @@ public class Visitor extends VisitorBase {
 
     /**
      * Visit each of the children one by one.
-     * @param node The node whose children will be visited.
+     * @args node The node whose children will be visited.
      */
-    @Override
     public void traverse(PythonTree node) throws Exception {
         node.traverse(this);
     }
@@ -28,7 +27,6 @@ public class Visitor extends VisitorBase {
         return ret;
     }
 
-    @Override
     protected Object unhandled_node(PythonTree node) throws Exception {
         return this;
     }

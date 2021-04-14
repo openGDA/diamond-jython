@@ -61,9 +61,17 @@ public class thread implements ClassDictInit {
     }
 
     /**
-     * Interrupt all running threads spawned by the thread module. This works in conjunction with:
-     * {@link org.python.core.PyTableCode#call}, which checks for the interrupted status of the
-     * current thread, and {@link FunctionThread#run()}, which exits the current thread.
+     * Interrupts all running threads spawned by the thread module.
+     *
+     * This works in conjunction with:<ul> <li>
+     * {@link org.python.core.PyTableCode#call}: checks for the interrupted
+     * status of the current thread and raise a SystemRestart exception if a
+     * interruption is detected.</li>
+     * <li>{@link FunctionThread#run()}: exits the current thread when a
+     * SystemRestart exception is not caught.</li>
+     *
+     * Thus, it is possible that this doesn't make all running threads to stop,
+     * if SystemRestart exception is caught.
      */
     public static void interruptAllThreads() {
         group.interrupt();
@@ -84,7 +92,7 @@ public class thread implements ClassDictInit {
     public static long get_ident() {
         return Thread.currentThread().getId();
     }
-
+    
     public static long stack_size(PyObject[] args) {
         switch (args.length) {
             case 0:

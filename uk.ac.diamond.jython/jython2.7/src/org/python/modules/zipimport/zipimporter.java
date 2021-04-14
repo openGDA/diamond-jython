@@ -6,8 +6,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Date;
 import java.util.Enumeration;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -25,7 +23,6 @@ import org.python.core.PyType;
 import org.python.core.PyUnicode;
 import org.python.core.Traverseproc;
 import org.python.core.Visitproc;
-import org.python.core.imp;
 import org.python.core.util.FileUtil;
 import org.python.core.util.StringUtil;
 import org.python.core.util.importer;
@@ -51,8 +48,6 @@ public class zipimporter extends importer<PyObject> implements Traverseproc {
         "Create a new zipimporter instance. 'archivepath' must be a path to\n" +
         "a zipfile. ZipImportError is raised if 'archivepath' doesn't point to\n" +
         "a valid Zip archive.");
-
-    private static Logger log = Logger.getLogger("org.python.import");
 
     /** Path to the Zip archive */
     public String archive;
@@ -91,7 +86,7 @@ public class zipimporter extends importer<PyObject> implements Traverseproc {
     @ExposedMethod
     final void zipimporter___init__(PyObject[] args, String[] kwds) {
         ArgParser ap = new ArgParser("__init__", args, kwds, new String[] {"path"});
-        String path = imp.fileSystemDecode(ap.getPyObject(0));
+        String path = Py.fileSystemDecode(ap.getPyObject(0));
         zipimporter___init__(path);
     }
 
@@ -320,7 +315,7 @@ public class zipimporter extends importer<PyObject> implements Traverseproc {
         try {
             return new ZipBundle(zipArchive, zipArchive.getInputStream(dataEntry));
         } catch (IOException ioe) {
-            log.log(Level.FINE, "zipimporter.getDataStream exception: {0}", ioe.toString());
+            Py.writeDebug("import", "zipimporter.getDataStream exception: " + ioe.toString());
             throw zipimport.ZipImportError("zipimport: can not open file: " + archive);
         }
     }

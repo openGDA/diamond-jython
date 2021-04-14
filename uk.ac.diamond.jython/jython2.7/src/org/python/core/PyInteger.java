@@ -117,8 +117,8 @@ public class PyInteger extends PyObject {
      *
      * @param x to convert to an int
      * @return int or long result.
-     * @throws PyException {@code TypeError} if no method of conversion can be found
-     * @throws PyException {@code AttributeError} if neither __int__ nor __trunc__ found (?)
+     * @throws PyException (TypeError) if no method of conversion can be found
+     * @throws PyException (AttributeError) if neither __int__ nor __trunc__ found (?)
      */
     private static PyObject asPyInteger(PyObject x) throws PyException {
         // XXX: Not sure that this perfectly matches CPython semantics.
@@ -226,27 +226,27 @@ public class PyInteger extends PyObject {
     public Object __tojava__(Class<?> c) {
         if (c == Integer.TYPE || c == Number.class || c == Object.class || c == Integer.class
                 || c == Serializable.class) {
-            return Integer.valueOf(getValue());
+            return new Integer(getValue());
         }
 
         if (c == Boolean.TYPE || c == Boolean.class) {
-            return Boolean.valueOf(getValue() != 0);
+            return new Boolean(getValue() != 0);
         }
         if (c == Byte.TYPE || c == Byte.class) {
-            return Byte.valueOf((byte)getValue());
+            return new Byte((byte)getValue());
         }
         if (c == Short.TYPE || c == Short.class) {
-            return Short.valueOf((short)getValue());
+            return new Short((short)getValue());
         }
 
         if (c == Long.TYPE || c == Long.class) {
-            return Long.valueOf(getValue());
+            return new Long(getValue());
         }
         if (c == Float.TYPE || c == Float.class) {
-            return Float.valueOf(getValue());
+            return new Float(getValue());
         }
         if (c == Double.TYPE || c == Double.class) {
-            return Double.valueOf(getValue());
+            return new Double(getValue());
         }
         return super.__tojava__(c);
     }
@@ -1062,7 +1062,7 @@ public class PyInteger extends PyObject {
      *
      * @param spec a parsed PEP-3101 format specification.
      * @return a formatter ready to use, or null if the type is not an integer format type.
-     * @throws PyException {@code ValueError} if the specification is faulty.
+     * @throws PyException(ValueError) if the specification is faulty.
      */
     @SuppressWarnings("fallthrough")
     static IntegerFormatter prepareFormatter(Spec spec) throws PyException {

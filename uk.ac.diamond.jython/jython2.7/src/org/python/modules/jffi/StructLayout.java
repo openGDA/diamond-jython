@@ -140,8 +140,8 @@ public class StructLayout extends CType.Custom implements Traverseproc {
             }
 
             com.kenai.jffi.Type jffiType = isUnion
-                    ? com.kenai.jffi.Union.newUnion(fieldTypes)
-                    : com.kenai.jffi.Struct.newStruct(fieldTypes);
+                    ? new com.kenai.jffi.Union(fieldTypes)
+                    : new com.kenai.jffi.Struct(fieldTypes);
 
             return new StructLayout(fields, jffiType, MemoryOp.INVALID);
         }

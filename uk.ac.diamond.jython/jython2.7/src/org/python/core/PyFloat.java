@@ -301,9 +301,9 @@ public class PyFloat extends PyObject {
     public Object __tojava__(Class<?> c) {
         if (c == Double.TYPE || c == Number.class || c == Double.class || c == Object.class
                 || c == Serializable.class) {
-            return Double.valueOf(getValue());
+            return new Double(getValue());
         } else if (c == Float.TYPE || c == Float.class) {
-            return Float.valueOf((float) getValue());
+            return new Float(getValue());
         }
         return super.__tojava__(c);
     }
@@ -979,7 +979,7 @@ public class PyFloat extends PyObject {
      *
      * @param spec a parsed PEP-3101 format specification.
      * @return a formatter ready to use, or null if the type is not a floating point format type.
-     * @throws PyException {@code ValueError} if the specification is faulty.
+     * @throws PyException(ValueError) if the specification is faulty.
      */
     @SuppressWarnings("fallthrough")
     static FloatFormatter prepareFormatter(Spec spec) {

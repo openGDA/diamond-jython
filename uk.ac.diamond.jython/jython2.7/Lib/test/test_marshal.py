@@ -1,6 +1,7 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# -*- coding: iso-8859-1 -*-
 
+from __future__ import with_statement
 from test import test_support
 import marshal
 import sys
@@ -117,7 +118,7 @@ class FloatTestCase(unittest.TestCase):
 
 class StringTestCase(unittest.TestCase):
     def test_unicode(self):
-        for s in [u"", u"AndrÃ© Previn", u"abc", u" "*10000]:
+        for s in [u"", u"Andrè Previn", u"abc", u" "*10000]:
             new = marshal.loads(marshal.dumps(s))
             self.assertEqual(s, new)
             self.assertEqual(type(s), type(new))
@@ -127,7 +128,7 @@ class StringTestCase(unittest.TestCase):
         os.unlink(test_support.TESTFN)
 
     def test_string(self):
-        for s in ["", "AndrÃ© Previn", "abc", " "*10000]:
+        for s in ["", "Andrè Previn", "abc", " "*10000]:
             new = marshal.loads(marshal.dumps(s))
             self.assertEqual(s, new)
             self.assertEqual(type(s), type(new))
@@ -136,28 +137,27 @@ class StringTestCase(unittest.TestCase):
             self.assertEqual(type(s), type(new))
         os.unlink(test_support.TESTFN)
 
-    def test_buffer(self):
-        for s in ["", "AndrÃ© Previn", "abc", " "*10000]:
-            with test_support.check_py3k_warnings(("buffer.. not supported",
-                                                     DeprecationWarning)):
+    if not test_support.is_jython:
+        def test_buffer(self):
+            for s in ["", "Andrè Previn", "abc", " "*10000]:
                 b = buffer(s)
-            new = marshal.loads(marshal.dumps(b))
-            self.assertEqual(s, new)
-            new = roundtrip(b)
-            self.assertEqual(s, new)
-        os.unlink(test_support.TESTFN)
+                new = marshal.loads(marshal.dumps(b))
+                self.assertEqual(s, new)
+                new = roundtrip(b)
+                self.assertEqual(s, new)
+            os.unlink(test_support.TESTFN)
 
 class ExceptionTestCase(unittest.TestCase):
     def test_exceptions(self):
         new = marshal.loads(marshal.dumps(StopIteration))
         self.assertEqual(StopIteration, new)
 
-@unittest.skipIf(test_support.is_jython, "requires PBC compilation back-end")
 class CodeTestCase(unittest.TestCase):
-    def test_code(self):
-        co = ExceptionTestCase.test_exceptions.func_code
-        new = marshal.loads(marshal.dumps(co))
-        self.assertEqual(co, new)
+    if not test_support.is_jython: # XXX - need to use the PBC compilation backend, which doesn't exist yet
+        def test_code(self):
+            co = ExceptionTestCase.test_exceptions.func_code
+            new = marshal.loads(marshal.dumps(co))
+            self.assertEqual(co, new)
 
 class ContainerTestCase(unittest.TestCase):
     d = {'astring': 'foo@bar.baz.spam',
@@ -167,7 +167,7 @@ class ContainerTestCase(unittest.TestCase):
          'alist': ['.zyx.41'],
          'atuple': ('.zyx.41',)*10,
          'aboolean': False,
-         'aunicode': u"AndrÃ© Previn"
+         'aunicode': u"Andrè Previn"
          }
     def test_dict(self):
         new = marshal.loads(marshal.dumps(self.d))
@@ -197,7 +197,7 @@ class ContainerTestCase(unittest.TestCase):
             t = constructor(self.d.keys())
             new = marshal.loads(marshal.dumps(t))
             self.assertEqual(t, new)
-            self.assertTrue(isinstance(new, constructor))
+            self.assert_(isinstance(new, constructor))
             self.assertNotEqual(id(t), id(new))
             new = roundtrip(t)
             self.assertEqual(t, new)
@@ -215,8 +215,8 @@ class BugsTestCase(unittest.TestCase):
 
     def test_version_argument(self):
         # Python 2.4.0 crashes for any call to marshal.dumps(x, y)
-        self.assertEqual(marshal.loads(marshal.dumps(5, 0)), 5)
-        self.assertEqual(marshal.loads(marshal.dumps(5, 1)), 5)
+        self.assertEquals(marshal.loads(marshal.dumps(5, 0)), 5)
+        self.assertEquals(marshal.loads(marshal.dumps(5, 1)), 5)
 
     def test_fuzz(self):
         # simple test that it's at least not *totally* trivial to
@@ -251,77 +251,6 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    def test_exact_type_match(self):
-        # Former bug:
-        #   >>> class Int(int): pass
-        #   >>> type(loads(dumps(Int())))
-        #   <type 'int'>
-        for typ in (int, long, float, complex, tuple, list, dict, set, frozenset):
-            # Note: str and unicode subclasses are not tested because they get handled
-            # by marshal's routines for objects supporting the buffer API.
-            subtyp = type('subtyp', (typ,), {})
-            self.assertRaises(ValueError, marshal.dumps, subtyp())
-
-    # Issue #1792 introduced a change in how marshal increases the size of its
-    # internal buffer; this test ensures that the new code is exercised.
-    def test_large_marshal(self):
-        size = int(1e6)
-        testString = 'abc' * size
-        marshal.dumps(testString)
-
-    def test_invalid_longs(self):
-        # Issue #7019: marshal.loads shouldn't produce unnormalized PyLongs
-        invalid_string = 'l\x02\x00\x00\x00\x00\x00\x00\x00'
-        self.assertRaises(ValueError, marshal.loads, invalid_string)
-
-LARGE_SIZE = 2**31
-character_size = 4 if sys.maxunicode > 0xFFFF else 2
-pointer_size = 8 if sys.maxsize > 0xFFFFFFFF else 4
-
-@unittest.skipIf(LARGE_SIZE > sys.maxsize, "requires larger sys.maxsize")
-class LargeValuesTestCase(unittest.TestCase):
-    def check_unmarshallable(self, data):
-        f = open(test_support.TESTFN, 'wb')
-        self.addCleanup(test_support.unlink, test_support.TESTFN)
-        with f:
-            self.assertRaises(ValueError, marshal.dump, data, f)
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE, memuse=1, dry_run=False)
-    def test_string(self, size):
-        self.check_unmarshallable('x' * size)
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE,
-            memuse=character_size, dry_run=False)
-    def test_unicode(self, size):
-        self.check_unmarshallable(u'x' * size)
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE,
-            memuse=pointer_size, dry_run=False)
-    def test_tuple(self, size):
-        self.check_unmarshallable((None,) * size)
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE,
-            memuse=pointer_size, dry_run=False)
-    def test_list(self, size):
-        self.check_unmarshallable([None] * size)
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE,
-            memuse=pointer_size*12 + sys.getsizeof(LARGE_SIZE-1),
-            dry_run=False)
-    def test_set(self, size):
-        self.check_unmarshallable(set(range(size)))
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE,
-            memuse=pointer_size*12 + sys.getsizeof(LARGE_SIZE-1),
-            dry_run=False)
-    def test_frozenset(self, size):
-        self.check_unmarshallable(frozenset(range(size)))
-
-    @test_support.precisionbigmemtest(size=LARGE_SIZE, memuse=1, dry_run=False)
-    def test_bytearray(self, size):
-        self.check_unmarshallable(bytearray(size))
-
-
 def test_main():
     test_support.run_unittest(IntTestCase,
                               FloatTestCase,
@@ -329,9 +258,7 @@ def test_main():
                               CodeTestCase,
                               ContainerTestCase,
                               ExceptionTestCase,
-                              BugsTestCase,
-                              LargeValuesTestCase,
-                             )
+                              BugsTestCase)
 
 if __name__ == "__main__":
     test_main()

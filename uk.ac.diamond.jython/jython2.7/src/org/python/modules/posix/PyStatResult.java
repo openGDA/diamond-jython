@@ -121,7 +121,7 @@ public class PyStatResult extends PyTuple {
 
     private static Long zeroOrValue(Long value) {
         if (value == null) {
-            return Long.valueOf(0L);
+            return new Long(0L);
         } else {
             return value;
         }
@@ -129,7 +129,7 @@ public class PyStatResult extends PyTuple {
 
     private static Integer zeroOrValue(Integer value) {
         if (value == null) {
-            return Integer.valueOf(0);
+            return new Integer(0);
         } else {
             return value;
         }

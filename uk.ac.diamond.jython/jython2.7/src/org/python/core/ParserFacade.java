@@ -84,8 +84,8 @@ public class ParserFacade {
             int line=e.line;
             int col=e.charPositionInLine;
             if (node != null) {
-                line = node.getLineno();
-                col = node.getCol_offset();
+                line = node.getLine();
+                col = node.getCharPositionInLine();
             }
             String text= getLine(reader, line);
             String msg = e.getMessage();

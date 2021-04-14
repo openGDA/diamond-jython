@@ -35,7 +35,7 @@ public class jythonTest {
      */
     @Test
     public void testDefaultConsole() {
-        jython.main(commands);
+        jython.run(commands);
         Console console = Py.getConsole();
         assertEquals(JLineConsole.class, console.getClass());
     }

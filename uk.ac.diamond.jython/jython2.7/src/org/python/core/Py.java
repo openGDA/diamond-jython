@@ -4,6 +4,7 @@ package org.python.core;
 import java.io.ByteArrayOutputStream;
 import java.io.CharArrayWriter;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -15,27 +16,54 @@ import java.io.Serializable;
 import java.io.StreamCorruptedException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLDecoder;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.List;
-import java.util.logging.Level;
+import java.util.Set;
 
 import org.python.antlr.base.mod;
 import org.python.core.adapter.ClassicPyObjectAdapter;
 import org.python.core.adapter.ExtensiblePyObjectAdapter;
 import org.python.modules.posix.PosixModule;
+import org.python.util.Generic;
 
 import com.google.common.base.CharMatcher;
 
 import jline.console.UserInterruptException;
 import jnr.constants.Constant;
 import jnr.constants.platform.Errno;
+import jnr.posix.POSIX;
+import jnr.posix.POSIXFactory;
 import jnr.posix.util.Platform;
 
-public final class Py extends PrePy {
+/** Builtin types that are used to setup PyObject.
+ *
+ * Resolve circular dependency with some laziness. */
+class BootstrapTypesSingleton {
+    private final Set<Class<?>> BOOTSTRAP_TYPES;
+    private BootstrapTypesSingleton() {
+        BOOTSTRAP_TYPES = Generic.set();
+        BOOTSTRAP_TYPES.add(PyObject.class);
+        BOOTSTRAP_TYPES.add(PyType.class);
+        BOOTSTRAP_TYPES.add(PyBuiltinCallable.class);
+        BOOTSTRAP_TYPES.add(PyDataDescr.class);
+    }
+
+    private static class LazyHolder {
+        private static final BootstrapTypesSingleton INSTANCE = new BootstrapTypesSingleton();
+    }
+
+    public static Set<Class<?>> getInstance() {
+        return LazyHolder.INSTANCE.BOOTSTRAP_TYPES;
+    }
+}
+
+public final class Py {
 
     static class SingletonResolver implements Serializable {
 
@@ -59,7 +87,7 @@ public final class Py extends PrePy {
 
     /* Holds the singleton None and Ellipsis objects */
     /** The singleton None Python object **/
-    public final static PyObject None = PyNone.getInstance();
+    public final static PyObject None = new PyNone();
     /** The singleton Ellipsis Python object - written as ... when indexing */
     public final static PyObject Ellipsis = new PyEllipsis();
     /** The singleton NotImplemented Python object. Used in rich comparison */
@@ -67,7 +95,8 @@ public final class Py extends PrePy {
     /** A zero-length array of Strings to pass to functions that
     don't have any keyword arguments **/
     public final static String[] NoKeywords = new String[0];
-    /** A zero-length array of PyObject's to pass to functions when we have no arguments **/
+    /** A zero-length array of PyObject's to pass to functions that
+    expect zero-arguments **/
     public final static PyObject[] EmptyObjects = new PyObject[0];
     /** A frozenset with zero elements **/
     public final static PyFrozenSet EmptyFrozenSet = new PyFrozenSet();
@@ -269,50 +298,26 @@ public final class Py extends PrePy {
 
     static void maybeSystemExit(PyException exc) {
         if (exc.match(Py.SystemExit)) {
-            // No actual exit here if Options.interactive (-i flag) is in force.
-            handleSystemExit(exc);
-        }
-    }
-
-    /**
-     * Exit the process, if {@value Options#inspect}{@code ==false}, cleaning up the system state.
-     * This exception (normally SystemExit) determines the message, if any, and the
-     * {@code System.exit} status.
-     *
-     * @param exc supplies the message or exit status
-     */
-    static void handleSystemExit(PyException exc) {
-        if (!Options.inspect) {
             PyObject value = exc.value;
             if (PyException.isExceptionInstance(exc.value)) {
                 value = value.__findattr__("code");
             }
-
-            // Decide exit status and produce message while Jython still works
-            int exitStatus;
+            Py.getSystemState().callExitFunc();
             if (value instanceof PyInteger) {
-                exitStatus = ((PyInteger) value).getValue();
+                System.exit(((PyInteger) value).getValue());
             } else {
                 if (value != Py.None) {
                     try {
                         Py.println(value);
-                        exitStatus = 1;
+                        System.exit(1);
                     } catch (Throwable t) {
-                        exitStatus = 0;
+                        // continue
                     }
-                } else {
-                    exitStatus = 0;
                 }
+                System.exit(0);
             }
-
-            // Shut down Jython
-            PySystemState sys = Py.getSystemState();
-            sys.callExitFunc();
-            sys.close();
-            System.exit(exitStatus);
         }
     }
-
     public static PyObject StopIteration;
 
     public static PyException StopIteration(String message) {
@@ -561,7 +566,6 @@ public final class Py extends PrePy {
     @param o the <code>PyObject</code> to convert.
     @param c the class to convert it to.
      **/
-    @SuppressWarnings("unchecked")
     public static <T> T tojava(PyObject o, Class<T> c) {
         Object obj = o.__tojava__(c);
         if (obj == Py.NoConversion) {
@@ -781,72 +785,11 @@ public final class Py extends PrePy {
         return list;
     }
 
-    /**
-     * Get the environment variables from {@code os.environ}. Keys and values should be
-     * {@code PyString}s in the file system encoding, and it may be a {@code dict} but nothing can
-     * be guaranteed. (Note that in the case of multiple interpreters, the target is in the current
-     * interpreter's copy of {@code os}.)
-     *
-     * @return {@code os.environ}
-     */
-    private static PyObject getEnvironment() {
-        PyObject os = imp.importName("os", true);
-        PyObject environ = os.__getattr__("environ");
-        return environ;
-    }
-
-    /** The same as {@code getenv(name, null)}. See {@link #getenv(PyString, PyString)}. */
-    public static PyString getenv(PyString name) {
-        return getenv(name, null);
-    }
-
-    /**
-     * Get the value of the environment variable named from {@code os.environ} or return the given
-     * default value. Empty string values are treated as undefined for this purpose.
-     *
-     * @param name of the environment variable.
-     * @param defaultValue to return if {@code key} is not defined (may be {@code null}.
-     * @return the corresponding value or <code>defaultValue</code>.
-     */
-    public static PyString getenv(PyString name, PyString defaultValue) {
-        try {
-            PyObject value = getEnvironment().__finditem__(name);
-            if (value == null) {
-                return defaultValue;
-            } else {
-                return value.__str__();
-            }
-        } catch (PyException e) {
-            // Something is fishy about os.environ, so the name is not defined.
-            return defaultValue;
-        }
-    }
-
-    /** The same as {@code getenv(name, null)}. See {@link #getenv(String, String)}. */
-    public static String getenv(String name) {
-        return getenv(name, null);
-    }
-
-    /**
-     * Get the value of the environment variable named from {@code os.environ} or return the given
-     * default value. This is a convenience wrapper on {@link #getenv(PyString, PyString)} which
-     * takes care of the fact that environment variables are FS-encoded.
-     *
-     * @param name to access in the environment.
-     * @param defaultValue to return if {@code key} is not defined.
-     * @return the corresponding value or <code>defaultValue</code>.
-     */
-    public static String getenv(String name, String defaultValue) {
-        PyString value = getenv(newUnicode(name), null);
-        if (value == null) {
-            return defaultValue;
-        } else {
-            // Environment variables are FS-encoded byte strings
-            return fileSystemDecode(value);
-        }
-    }
-
     public static PyStringMap newStringMap() {
+        // enable lazy bootstrapping (see issue #1671)
+        if (!PyType.hasBuilder(PyStringMap.class)) {
+            BootstrapTypesSingleton.getInstance().add(PyStringMap.class);
+        }
         return new PyStringMap();
     }
 
@@ -1060,94 +1003,99 @@ public final class Py extends PrePy {
     private static boolean syspathJavaLoaderRestricted = false;
 
     /**
-     * Common code for {@link #findClass(String)} and {@link #findClassEx(String, String)}.
-     *
-     * @param name of the Java class to load and initialise
-     * @param reason to be given in debug output (or {@code null} to suppress debug output.
+     * Common code for findClass and findClassEx
+     * @param name Name of the Java class to load and initialize
+     * @param reason Reason for loading it, used for debugging. No debug output
+     *               is generated if it is null
      * @return the loaded class
      * @throws ClassNotFoundException if the class wasn't found by the class loader
      */
-    private static Class<?> findClassInternal(String name, String reason)
-            throws ClassNotFoundException {
-
+    private static Class<?> findClassInternal(String name, String reason) throws ClassNotFoundException {
         ClassLoader classLoader = Py.getSystemState().getClassLoader();
         if (classLoader != null) {
-            findClassTrying(name, reason, classLoader, "sys.classLoader");
+            if (reason != null) {
+                writeDebug("import", "trying " + name + " as " + reason +
+                          " in sys.classLoader");
+            }
             return loadAndInitClass(name, classLoader);
         }
-
         if (!syspathJavaLoaderRestricted) {
             try {
                 classLoader = imp.getSyspathJavaLoader();
-                findClassTrying(name, reason, classLoader, "SysPathJavaLoader");
+                if (classLoader != null && reason != null) {
+                    writeDebug("import", "trying " + name + " as " + reason +
+                            " in SysPathJavaLoader");
+                }
             } catch (SecurityException e) {
                 syspathJavaLoaderRestricted = true;
             }
         }
-
         if (syspathJavaLoaderRestricted) {
             classLoader = imp.getParentClassLoader();
-            findClassTrying(name, reason, classLoader, "Jython's parent class loader");
+            if (classLoader != null && reason != null) {
+                writeDebug("import", "trying " + name + " as " + reason +
+                        " in Jython's parent class loader");
+            }
         }
-
         if (classLoader != null) {
             try {
                 return loadAndInitClass(name, classLoader);
             } catch (ClassNotFoundException cnfe) {
                 // let the default classloader try
-                /*
-                 * XXX: by trying another classloader that may not be on a parent/child relationship
-                 * with the Jython's parent classsloader we are risking some nasty class loading
-                 * problems (such as having two incompatible copies for the same class that is
-                 * itself a dependency of two classes loaded from these two different class
-                 * loaders).
-                 */
+                // XXX: by trying another classloader that may not be on a
+                //      parent/child relationship with the Jython's parent
+                //      classsloader we are risking some nasty class loading
+                //      problems (such as having two incompatible copies for
+                //      the same class that is itself a dependency of two
+                //      classes loaded from these two different class loaders)
             }
         }
-
-        classLoader = Thread.currentThread().getContextClassLoader();
-        findClassTrying(name, reason, classLoader,
-                "context class loader, for backwards compatibility");
-        return loadAndInitClass(name, classLoader);
-    }
-
-    private static void findClassTrying(String name, String reason, ClassLoader cl, String place) {
-        if (cl != null && reason != null && importLogger.isLoggable(Level.FINE)) {
-            importLogger.log(Level.FINE, "# trying {0} as {1} in {2}",
-                    new Object[] {name, reason, place});
+        if (reason != null) {
+            writeDebug("import", "trying " + name + " as " + reason +
+                       " in context class loader, for backwards compatibility");
         }
+        return loadAndInitClass(name, Thread.currentThread().getContextClassLoader());
     }
 
     /**
-     * Find and load a Java class by name.
-     *
-     * @param name of the Java class.
-     * @return the class, or {@code null} if it wasn't found or something went wrong
+     * Tries to find a Java class.
+     * @param name Name of the Java class.
+     * @return The class, or null if it wasn't found
      */
     public static Class<?> findClass(String name) {
         try {
             return findClassInternal(name, null);
-        } catch (ClassNotFoundException | IllegalArgumentException | NoClassDefFoundError e) {
-            // e.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            //             e.printStackTrace();
+            return null;
+        } catch (IllegalArgumentException e) {
+            //             e.printStackTrace();
+            return null;
+        } catch (NoClassDefFoundError e) {
+            //             e.printStackTrace();
             return null;
         }
     }
 
     /**
-     * Find and load a Java class by name.
+     * Tries to find a Java class.
      *
+     * Unless {@link #findClass(String)}, it raises a JavaError
+     * if the class was found but there were problems loading it.
      * @param name Name of the Java class.
-     * @param reason for finding the class. Used in debugging messages.
-     * @return the class, or {@code null} if it simply wasn't found
-     * @throws PyException {@code JavaError} wrapping errors occurring when the class is found but
-     *             cannot be loaded.
+     * @param reason Reason for finding the class. Used for debugging messages.
+     * @return The class, or null if it wasn't found
+     * @throws JavaError wrapping LinkageErrors/IllegalArgumentExceptions
+     * occurred when the class is found but can't be loaded.
      */
-    public static Class<?> findClassEx(String name, String reason) throws PyException {
+    public static Class<?> findClassEx(String name, String reason) {
         try {
             return findClassInternal(name, reason);
         } catch (ClassNotFoundException e) {
             return null;
-        } catch (IllegalArgumentException | LinkageError e) {
+        } catch (IllegalArgumentException e) {
+            throw JavaError(e);
+        } catch (LinkageError e) {
             throw JavaError(e);
         }
     }
@@ -1155,10 +1103,10 @@ public final class Py extends PrePy {
     // An alias to express intent (since boolean flags aren't exactly obvious).
     // We *need* to initialize classes on findClass/findClassEx, so that import
     // statements can trigger static initializers
-    private static Class<?> loadAndInitClass(String name, ClassLoader loader)
-            throws ClassNotFoundException {
+    private static Class<?> loadAndInitClass(String name, ClassLoader loader) throws ClassNotFoundException {
         return Class.forName(name, true, loader);
     }
+
 
     public static void initProxy(PyProxy proxy, String module, String pyclass, Object[] args)
     {
@@ -1263,35 +1211,15 @@ public final class Py extends PrePy {
         return str;
     }
 
-    /**
-     * Display an exception and stack trace through
-     * {@link #printException(Throwable, PyFrame, PyObject)}.
-     *
-     * @param t to display
-     */
+    /* Display a PyException and stack trace */
     public static void printException(Throwable t) {
         printException(t, null, null);
     }
 
-    /**
-     * Display an exception and stack trace through
-     * {@link #printException(Throwable, PyFrame, PyObject)}.
-     *
-     * @param t to display
-     * @param f frame at which to start the stack trace
-     */
     public static void printException(Throwable t, PyFrame f) {
         printException(t, f, null);
     }
 
-    /**
-     * Display an exception and stack trace. If the exception was {@link Py#SystemExit} <b>and</b>
-     * {@link Options#inspect}{@code ==false}, this will exit the JVM.
-     *
-     * @param t to display
-     * @param f frame at which to start the stack trace
-     * @param file output onto this stream or {@link Py#stderr} if {@code null}
-     */
     public static synchronized void printException(Throwable t, PyFrame f,
             PyObject file) {
         StdoutWrapper stderr = Py.stderr;
@@ -1313,7 +1241,6 @@ public final class Py extends PrePy {
 
         PyException exc = Py.JavaError(t);
 
-        // Act on SystemExit here.
         maybeSystemExit(exc);
 
         setException(exc, f);
@@ -1823,6 +1750,34 @@ public final class Py extends PrePy {
         }
     }
 
+    /**
+     * Check (using the {@link POSIX} library and <code>jnr-posix</code> library) whether we are in
+     * an interactive environment. Amongst other things, this affects the type of console that may
+     * be legitimately installed during system initialisation. Note that the result may vary
+     * according to whether a <code>jnr-posix</code> native library is found along
+     * <code>java.library.path</code>, or the pure Java fall-back is used.
+     *
+     * @return true if (we think) we are in an interactive environment
+     */
+    public static boolean isInteractive() {
+        // python.launcher.tty is authoratative; see http://bugs.jython.org/issue2325
+        String isTTY = System.getProperty("python.launcher.tty");
+        if (isTTY != null && isTTY.equals("true")) {
+            return true;
+        }
+        if (isTTY != null && isTTY.equals("false")) {
+            return false;
+        }
+        // Decide if System.in is interactive
+        try {
+            POSIX posix = POSIXFactory.getPOSIX();
+            FileDescriptor in = FileDescriptor.in;
+            return posix.isatty(in);
+        } catch (SecurityException ex) {
+            return false;
+        }
+    }
+
     private static final String IMPORT_SITE_ERROR = ""
             + "Cannot import site module and its dependencies: %s\n"
             + "Determine if the following attributes are correct:\n" //
@@ -1834,8 +1789,6 @@ public final class Py extends PrePy {
             + "You can use the -S option or python.import.site=false to not import the site module";
 
     public static boolean importSiteIfSelected() {
-        // Ensure sys.flags.no_site actually reflects what happened. (See docs of these two.)
-        Options.no_site = !Options.importSite;
         if (Options.importSite) {
             try {
                 // Ensure site-packages are available
@@ -2314,6 +2267,37 @@ public final class Py extends PrePy {
     public static void printResult(PyObject ret) {
         Py.getThreadState().getSystemState().invoke("displayhook", ret);
     }
+    public static final int ERROR = -1;
+    public static final int WARNING = 0;
+    public static final int MESSAGE = 1;
+    public static final int COMMENT = 2;
+    public static final int DEBUG = 3;
+
+    public static void maybeWrite(String type, String msg, int level) {
+        if (level <= Options.verbose) {
+            System.err.println(type + ": " + msg);
+        }
+    }
+
+    public static void writeError(String type, String msg) {
+        maybeWrite(type, msg, ERROR);
+    }
+
+    public static void writeWarning(String type, String msg) {
+        maybeWrite(type, msg, WARNING);
+    }
+
+    public static void writeMessage(String type, String msg) {
+        maybeWrite(type, msg, MESSAGE);
+    }
+
+    public static void writeComment(String type, String msg) {
+        maybeWrite(type, msg, COMMENT);
+    }
+
+    public static void writeDebug(String type, String msg) {
+        maybeWrite(type, msg, DEBUG);
+    }
 
     public static void saveClassFile(String name, ByteArrayOutputStream bytestream) {
         String dirname = Options.proxyDebugDirectory;
@@ -2529,32 +2513,175 @@ public final class Py extends PrePy {
         }
     }
 
-    /**
-     * Turn any Python iterable into an array of its elements.
-     *
-     * @param iterable to evaluate
-     * @return array of elements from iterable
-     */
     static PyObject[] make_array(PyObject iterable) {
         // Special-case the common tuple and list cases, for efficiency
         if (iterable instanceof PySequenceList) {
             return ((PySequenceList) iterable).getArray();
-        } else {
-            int n = 10;
-            if (!(iterable instanceof PyGenerator)) {
-                try {
-                    n = iterable.__len__(); // may be available, otherwise ...
-                } catch (PyException pye) { /* ... leave n at 0 */ }
-            }
-            List<PyObject> objs = new ArrayList<PyObject>(n);
-            for (PyObject item : iterable.asIterable()) {
-                objs.add(item);
-            }
-            return objs.toArray(Py.EmptyObjects);
         }
+
+        // Guess result size and allocate space. The typical make_array arg supports
+        // __len__, with one exception being generators, so avoid the overhead of an
+        // exception from __len__ in their case
+        int n = 10;
+        if (!(iterable instanceof PyGenerator)) {
+            try {
+                n = iterable.__len__();
+            } catch (PyException pye) {
+                // ok
+            }
+        }
+
+        List<PyObject> objs = new ArrayList<PyObject>(n);
+        for (PyObject item : iterable.asIterable()) {
+            objs.add(item);
+        }
+        return objs.toArray(Py.EmptyObjects);
     }
 
-//------------------------constructor-section---------------------------
+    /**
+     * Infers the usual Jython executable name from the position of the
+     * jar-file returned by {@link #getJarFileName()} by replacing the
+     * file name with "bin/jython". This is intended as an easy fallback
+     * for cases where {@code sys.executable} is {@code None} due to
+     * direct launching via the java executable.<br>
+     * Note that this does not necessarily return the actual executable,
+     * but instead infers the place where it is usually expected to be.
+     * Use {@code sys.executable} to get the actual executable (may be
+     * {@code None}.
+     *
+     * In contrast to {@link #getJarFileName()} and
+     * {@link #getJarFileNameFromURL(java.net.URL)} this method returns
+     * the path using system-specific separator characters.
+     *
+     * @return usual Jython-executable as absolute path
+     */
+    public static String getDefaultExecutableName() {
+        return getDefaultBinDir()+File.separator+(
+                Platform.IS_WINDOWS ? "jython.exe" : "jython");
+    }
+
+    /**
+     * Infers the usual Jython bin-dir from the position of the jar-file
+     * returned by {@link #getJarFileName()} byr replacing the file name
+     * with "bin". This is intended as an easy fallback for cases where
+     * {@code sys.executable} is {@code null} due to direct launching via
+     * the java executable.<br>
+     * Note that this does not necessarily return the actual bin-directory,
+     * but instead infers the place where it is usually expected to be.
+     *
+     * In contrast to {@link #getJarFileName()} and
+     * {@link #getJarFileNameFromURL(java.net.URL)} this method returns
+     * the path using system-specific separator characters.
+     *
+     * @return usual Jython bin-dir as absolute path
+     */
+    public static String getDefaultBinDir() {
+        String jar = _getJarFileName();
+        if (File.separatorChar != '/') {
+            jar = jar.replace('/', File.separatorChar);
+        }
+        return jar.substring(0, jar.lastIndexOf(File.separatorChar)+1)+"bin";
+    }
+
+    /**
+     * Utility-method to obtain the name (including absolute path) of the currently used
+     * jython-jar-file. Usually this is jython.jar, but can also be jython-dev.jar or
+     * jython-standalone.jar or something custom.
+     *
+     * @return the full name of the jar file containing this class, <code>null</code>
+     *         if not available.
+     */
+    public static String getJarFileName() {
+        String jar = _getJarFileName();
+        if (File.separatorChar != '/') {
+            jar = jar.replace('/', File.separatorChar);
+        }
+        return jar;
+    }
+
+    /**
+     * Utility-method to obtain the name (including absolute path) of the currently used
+     * jython-jar-file. Usually this is jython.jar, but can also be jython-dev.jar or
+     * jython-standalone.jar or something custom.
+     *
+     * Note that it does not use system-specific seperator-chars, but always '/'.
+     *
+     * @return the full name of the jar file containing this class, <code>null</code>
+     *         if not available.
+     */
+    public static String _getJarFileName() {
+        Class<Py> thisClass = Py.class;
+        String fullClassName = thisClass.getName();
+        String className = fullClassName.substring(fullClassName.lastIndexOf(".") + 1);
+        URL url = thisClass.getResource(className + ".class");
+        return getJarFileNameFromURL(url);
+    }
+
+    /**exclusively used by {@link #getJarFileNameFromURL(java.net.URL)}.*/
+    private static final String JAR_URL_PREFIX = "jar:file:";
+    /**exclusively used by {@link #getJarFileNameFromURL(java.net.URL)}.*/
+    private static final String JAR_SEPARATOR = "!";
+    /**exclusively used by {@link #getJarFileNameFromURL(java.net.URL)}.*/
+    private static final String VFSZIP_PREFIX = "vfszip:";
+    /**exclusively used by {@link #getJarFileNameFromURL(java.net.URL)}.*/
+    private static final String VFS_PREFIX = "vfs:";
+
+    /**
+     * Converts a url that points to a jar-file to the actual jar-file name.
+     * Note that it does not use system-specific seperator-chars, but always '/'.
+     */
+    public static String getJarFileNameFromURL(URL url) {
+        String jarFileName = null;
+        if (url != null) {
+            try {
+                // escape plus signs, since the URLDecoder would turn them into spaces
+                final String plus = "\\+";
+                final String escapedPlus = "__ppluss__";
+                String rawUrl = url.toString();
+                rawUrl = rawUrl.replaceAll(plus, escapedPlus);
+                String urlString = URLDecoder.decode(rawUrl, "UTF-8");
+                urlString = urlString.replaceAll(escapedPlus, plus);
+                int jarSeparatorIndex = urlString.lastIndexOf(JAR_SEPARATOR);
+                if (urlString.startsWith(JAR_URL_PREFIX) && jarSeparatorIndex > 0) {
+                    // jar:file:/install_dir/jython.jar!/org/python/core/PySystemState.class
+                    int start = JAR_URL_PREFIX.length();
+                    if (Platform.IS_WINDOWS) {
+                        start++;
+                    }
+                    jarFileName = urlString.substring(start, jarSeparatorIndex);
+                } else if (urlString.startsWith(VFSZIP_PREFIX)) {
+                    // vfszip:/some/path/jython.jar/org/python/core/PySystemState.class
+                    final String path = Py.class.getName().replace('.', '/');
+                    int jarIndex = urlString.indexOf(".jar/".concat(path));
+                    if (jarIndex > 0) {
+                        jarIndex += 4;
+                        int start = VFSZIP_PREFIX.length();
+                        if (Platform.IS_WINDOWS) {
+                            // vfszip:/C:/some/path/jython.jar/org/python/core/PySystemState.class
+                            start++;
+                        }
+                        jarFileName = urlString.substring(start, jarIndex);
+                    }
+                } else if (urlString.startsWith(VFS_PREFIX)) {
+                    // vfs:/some/path/jython.jar/org/python/core/PySystemState.class
+                    final String path = Py.class.getName().replace('.', '/');
+                    int jarIndex = urlString.indexOf(".jar/".concat(path));
+                    if (jarIndex > 0) {
+                        jarIndex += 4;
+                        int start = VFS_PREFIX.length();
+                        if (Platform.IS_WINDOWS) {
+                            // vfs:/C:/some/path/jython.jar/org/python/core/PySystemState.class
+                            start++;
+                        }
+                        jarFileName = urlString.substring(start, jarIndex);
+                    }
+                }
+            } catch (Exception e) {}
+        }
+        return jarFileName;
+    }
+
+//------------------------contructor-section---------------------------
     static class py2JyClassCacheItem {
         List<Class<?>> interfaces;
         List<PyObject> pyClasses;
@@ -2605,16 +2732,17 @@ public final class Py extends PrePy {
     }
 
     /**
-     * Returns a Python-class that extends {@code cls} and {@code interfce}. If {@code cls} already
-     * extends {@code interfce}, simply {@code cls} is returned. Otherwise a new class is created
-     * (if not yet cached). It caches such classes and only creates a new one if no appropriate
+     * Returns a Python-class that extends {@code cls} and {@code interfce}.
+     * If {@code cls} already extends {@code interfce}, simply {@code cls}
+     * is returned. Otherwise a new class is created (if not yet cached).
+     * It caches such classes and only creates a new one if no appropriate
      * class was cached yet.
      *
      * @return a Python-class that extends {@code cls} and {@code interfce}
      */
     public static synchronized PyObject javaPyClass(PyObject cls, Class<?> interfce) {
-        py2JyClassCacheItem cacheItem = (py2JyClassCacheItem) JyAttribute.getAttr(cls,
-                JyAttribute.PYCLASS_PY2JY_CACHE_ATTR);
+        py2JyClassCacheItem cacheItem = (py2JyClassCacheItem)
+                JyAttribute.getAttr(cls, JyAttribute.PYCLASS_PY2JY_CACHE_ATTR);
         PyObject result;
         if (cacheItem == null) {
             result = ensureInterface(cls, interfce);
@@ -2631,21 +2759,22 @@ public final class Py extends PrePy {
     }
 
     /**
-     * This method is a compact helper to access Python-constructors from Java. It creates an
-     * instance of {@code cls} and retruns it in form of {@code jcls}, which must be an interface.
-     * This method even works if {@code cls} does not extend {@code jcls} in Python-code. In that
-     * case, it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate class on the
-     * fly.
-     * <p>
+     * This method is a compact helper to access Python-constructors from Java.
+     * It creates an instance of {@code cls} and retruns it in form of
+     * {@code jcls}, which must be an interface. This method even works if
+     * {@code cls} does not extend {@code jcls} in Python-code. In that case,
+     * it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate
+     * class on the fly.<br>
      * It automatically converts {@code args} to {@link org.python.core.PyObject}s.<br>
-     * For keyword-support use {@link #newJ(PyObject, Class, String[], Object...)}.
+     * For keyword-support use
+     * {@link #newJ(PyObject, Class, String[], Object...)}.
      *
-     * @see #newJ(PyObject, Class, PyObject[], String[])
-     * @see #newJ(PyObject, Class, String[], Object...)
-     * @see #newJ(PyModule, Class, Object...)
-     * @see #newJ(PyModule, Class, String[], Object...)
-     * @see PyModule#newJ(Class, Object...)
-     * @see PyModule#newJ(Class, String[], Object...)
+     * {@see #newJ(PyObject, Class, PyObject[], String[])}
+     * {@see #newJ(PyObject, Class, String[], Object...)}
+     * {@see #newJ(PyModule, Class, Object...)}
+     * {@see #newJ(PyModule, Class, String[], Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, String[], Object...)}
      *
      * @param cls - the class to be instanciated
      * @param jcls - the Java-type to be returned
@@ -2660,20 +2789,20 @@ public final class Py extends PrePy {
     }
 
     /**
-     * This method is a compact helper to access Python-constructors from Java. It creates an
-     * instance of {@code cls} and retruns it in form of {@code jcls}, which must be an interface.
-     * This method even works if {@code cls} does not extend {@code jcls} in Python-code. In that
-     * case, it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate class on the
-     * fly.
-     * <p>
+     * This method is a compact helper to access Python-constructors from Java.
+     * It creates an instance of {@code cls} and retruns it in form of
+     * {@code jcls}, which must be an interface. This method even works if
+     * {@code cls} does not extend {@code jcls} in Python-code. In that case,
+     * it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate
+     * class on the fly.<br>
      * {@code keywordss} are applied to the last {@code args} in the list.
      *
-     * @see #newJ(PyObject, Class, Object...)
-     * @see #newJ(PyObject, Class, String[], Object...)
-     * @see #newJ(PyModule, Class, Object...)
-     * @see #newJ(PyModule, Class, String[], Object...)
-     * @see PyModule#newJ(Class, Object...)
-     * @see PyModule#newJ(Class, String[], Object...)
+     * {@see #newJ(PyObject, Class, Object...)}
+     * {@see #newJ(PyObject, Class, String[], Object...)}
+     * {@see #newJ(PyModule, Class, Object...)}
+     * {@see #newJ(PyModule, Class, String[], Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, String[], Object...)}
      *
      * @param cls - the class to be instanciated
      * @param jcls - the Java-type to be returned
@@ -2689,21 +2818,21 @@ public final class Py extends PrePy {
     }
 
     /**
-     * This method is a compact helper to access Python-constructors from Java. It creates an
-     * instance of {@code cls} and retruns it in form of {@code jcls}, which must be an interface.
-     * This method even works if {@code cls} does not extend {@code jcls} in Python-code. In that
-     * case, it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate class on the
-     * fly.
-     * <p>
+     * This method is a compact helper to access Python-constructors from Java.
+     * It creates an instance of {@code cls} and retruns it in form of
+     * {@code jcls}, which must be an interface. This method even works if
+     * {@code cls} does not extend {@code jcls} in Python-code. In that case,
+     * it uses {@link #javaPyClass(PyObject, Class)} to create an appropriate
+     * class on the fly.<br>
      * It automatically converts {@code args} to {@link org.python.core.PyObject}s.<br>
      * {@code keywordss} are applied to the last {@code args} in the list.
      *
-     * @see #newJ(PyObject, Class, PyObject[], String[])
-     * @see #newJ(PyObject, Class, Object...)
-     * @see #newJ(PyModule, Class, Object...)
-     * @see #newJ(PyModule, Class, String[], Object...)
-     * @see PyModule#newJ(Class, Object...)
-     * @see PyModule#newJ(Class, String[], Object...)
+     * {@see #newJ(PyObject, Class, PyObject[], String[])}
+     * {@see #newJ(PyObject, Class, Object...)}
+     * {@see #newJ(PyModule, Class, Object...)}
+     * {@see #newJ(PyModule, Class, String[], Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, String[], Object...)}
      *
      * @param cls - the class to be instanciated
      * @param jcls - the Java-type to be returned
@@ -2719,40 +2848,41 @@ public final class Py extends PrePy {
     }
 
     /**
-     * Works like {@link #newJ(PyObject, Class, Object...)}, but looks up the Python-class in the
-     * module-dict using the interface-name, i.e. {@code jcls.getSimpleName()}.
-     * <p>
+     * Works like {@link #newJ(PyObject, Class, Object...)}, but looks
+     * up the Python-class in the module-dict using the interface-name, i.e.
+     * {@code jcls.getSimpleName()}.<br>
      * For keywords-support use {@link #newJ(PyModule, Class, String[], Object...)}.
      *
-     * @see #newJ(PyModule, Class, String[], Object...)
-     * @see #newJ(PyObject, Class, PyObject[], String[])
-     * @see #newJ(PyObject, Class, Object...)
-     * @see #newJ(PyObject, Class, String[], Object...)
-     * @see PyModule#newJ(Class, Object...)
-     * @see PyModule#newJ(Class, String[], Object...)
+     * {@see #newJ(PyModule, Class, String[], Object...)}
+     * {@see #newJ(PyObject, Class, PyObject[], String[])}
+     * {@see #newJ(PyObject, Class, Object...)}
+     * {@see #newJ(PyObject, Class, String[], Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, String[], Object...)}
      *
      * @param module the module containing the desired class
      * @param jcls Java-type of the desired clas, must have the same name
      * @param args constructor-arguments
      * @return a new instance of the desired class
      */
+    @SuppressWarnings("unchecked")
     public static <T> T newJ(PyModule module, Class<T> jcls, Object... args) {
         PyObject cls = module.__getattr__(jcls.getSimpleName().intern());
         return newJ(cls, jcls, args);
     }
 
     /**
-     * Works like {@link #newJ(PyObject, Class, String[], Object...)}, but looks up the Python-class
-     * in the module-dict using the interface-name, i.e. {@code jcls.getSimpleName()}.
-     * <p>
+     * Works like {@link #newJ(PyObject, Class, String[], Object...)}, but looks
+     * up the Python-class in the module-dict using the interface-name, i.e.
+     * {@code jcls.getSimpleName()}.<br>
      * {@code keywordss} are applied to the last {@code args} in the list.
      *
-     * @see #newJ(PyModule, Class, Object...)
-     * @see #newJ(PyObject, Class, PyObject[], String[])
-     * @see #newJ(PyObject, Class, Object...)
-     * @see #newJ(PyObject, Class, String[], Object...)
-     * @see PyModule#newJ(Class, Object...)
-     * @see PyModule#newJ(Class, String[], Object...)
+     * {@see #newJ(PyModule, Class, Object...)}
+     * {@see #newJ(PyObject, Class, PyObject[], String[])}
+     * {@see #newJ(PyObject, Class, Object...)}
+     * {@see #newJ(PyObject, Class, String[], Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, Object...)}
+     * {@see org.python.core.PyModule#newJ(Class, String[], Object...)}
      *
      * @param module the module containing the desired class
      * @param jcls Java-type of the desired class, must have the same name
@@ -2760,6 +2890,7 @@ public final class Py extends PrePy {
      * @param args constructor-arguments
      * @return a new instance of the desired class
      */
+    @SuppressWarnings("unchecked")
     public static <T> T newJ(PyModule module, Class<T> jcls, String[] keywords, Object... args) {
         PyObject cls = module.__getattr__(jcls.getSimpleName().intern());
         return newJ(cls, jcls, keywords, args);

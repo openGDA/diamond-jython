@@ -1,5 +1,4 @@
-// Copyright (c)2019 Jython Developers.
-// Licensed to PSF under a Contributor Agreement.
+/* Copyright (c) Jython Developers */
 package org.python.core;
 
 /**
@@ -47,10 +46,19 @@ public class Deriveds {
                 // pass through to __getattr__
             } else {
                 PyObject getattribute = type.lookup("__getattribute__");
+                // This is a horrible hack for eventual consistency of the cache. We hope that the cached version
+                // becomes available, but don't wait forever.
+                for (int i = 0; i < 100000; i++) {
+                    if (getattribute != null) {
+                        break;
+                    }
+                    getattribute = type.lookup("__getattribute__");
+                }
                 if (getattribute == null) {
-                    // This shouldn't happen (and isn't always to do with bjo #2487 when it does).
-                    throw Py.SystemError(
-                            String.format("__getattribute__ not found on type %s", type.getName()));
+                    // This shouldn't happen
+                    throw Py.SystemError(String.format(
+                            "__getattribute__ not found on type %s. See http://bugs.jython.org/issue2487 for details.",
+                            type.getName()));
                 }
                 if (getattribute == objectGetattribute) {
                     type.setUsesObjectGetattribute(true);

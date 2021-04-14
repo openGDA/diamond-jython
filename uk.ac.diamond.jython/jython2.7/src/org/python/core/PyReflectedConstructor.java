@@ -1,6 +1,4 @@
 // Copyright (c) Corporation for National Research Initiatives
-// Copyright (c)2019 Jython Developers.
-// Licensed to PSF under a Contributor Agreement.
 package org.python.core;
 
 import java.lang.reflect.Constructor;
@@ -42,7 +40,7 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         // Check for a matching constructor to call
         if (nargs > 0) { // PyArgsKeywordsCall signature, if present, is the first
             if (argslist[0].matches(null, args, keywords, callData)) {
-                method = argslist[0].method;
+                method = argslist[0].data;
                 consumes_keywords = argslist[0].flags == ReflectedArgs.PyArgsKeywordsCall;
             } else {
                 allArgs = args;
@@ -54,7 +52,7 @@ public class PyReflectedConstructor extends PyReflectedFunction {
                 }
                 for (; i < nargs; i++) {
                     if (argslist[i].matches(null, args, Py.NoKeywords, callData)) {
-                        method = argslist[i].method;
+                        method = argslist[i].data;
                         break;
                     }
                 }
@@ -118,7 +116,7 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         }
         ReflectedCallData callData = new ReflectedCallData();
         Object method = null;
-
+        
         // If we have keyword args, there are two ways this can be handled;
         // a) we find a constructor that takes keyword args, and use it.
         // b) we don't, in which case we strip the keyword args, and pass the
@@ -131,25 +129,25 @@ public class PyReflectedConstructor extends PyReflectedFunction {
         boolean usingKeywordArgsCtor = false;
         if (nkeywords > 0) {
             // We have keyword args.
-
+            
             // Look for a constructor; the ReflectedArgs#matches() method exits early in the case
             // where keyword args are used
             int n = nargs;
             for (int i = 0; i < n; i++) {
                 rargs = argslist[i];
                 if (rargs.matches(null, args, keywords, callData)) {
-                    method = rargs.method;
+                    method = rargs.data;
                     break;
                 }
             }
-
+            
             if (method != null) {
                 // Constructor found that will accept the keyword args
                 usingKeywordArgsCtor = true;
             } else {
                 // No constructor found that will take keyword args
-
-                // Remove the keyword args
+                
+                // Remove the keyword args  
                 args = new PyObject[allArgs.length - nkeywords];
                 System.arraycopy(allArgs, 0, args, 0, args.length);
 
@@ -157,7 +155,7 @@ public class PyReflectedConstructor extends PyReflectedFunction {
                 for (int i = 0; i < n; i++) {
                     rargs = argslist[i];
                     if (rargs.matches(null, args, Py.NoKeywords, callData)) {
-                        method = rargs.method;
+                        method = rargs.data;
                         break;
                     }
                 }
@@ -168,12 +166,12 @@ public class PyReflectedConstructor extends PyReflectedFunction {
            for (int i = 0; i < n; i++) {
                rargs = argslist[i];
                if (rargs.matches(null, args, Py.NoKeywords, callData)) {
-                   method = rargs.method;
+                   method = rargs.data;
                    break;
                }
            }
        }
-
+        
         // Throw an error if no valid set of arguments
         if (method == null) {
             throwError(callData.errArg, args.length, false, false);
@@ -219,9 +217,8 @@ public class PyReflectedConstructor extends PyReflectedFunction {
                         msg += " " + sup.getName();
                     }
                     throw Py.TypeError(msg);
-                } else {
+                } else
                     throw Py.JavaError(e);
-                }
             } catch (Throwable t) {
                 throw Py.JavaError(t);
             }

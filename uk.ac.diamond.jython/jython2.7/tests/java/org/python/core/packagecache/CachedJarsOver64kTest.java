@@ -41,7 +41,7 @@ public class CachedJarsOver64kTest extends TestCase {
         }
 
         @Override
-        protected void warning(String msg, Object... params) {
+        protected void warning(String msg){
             failed = true;
         }
 

@@ -1,8 +1,5 @@
 package org.python.core;
 
-import java.util.logging.Logger;
-import java.util.logging.Level;
-
 /**
  * Load Java classes.
  */
@@ -10,9 +7,7 @@ import java.util.logging.Level;
 public class JavaImporter extends PyObject {
 
     public static final String JAVA_IMPORT_PATH_ENTRY = "__classpath__";
-    private static Logger log = Logger.getLogger("org.python.import");
 
-    @Override
     public PyObject __call__(PyObject args[], String keywords[]) {
         if(args[0].toString().endsWith(JAVA_IMPORT_PATH_ENTRY)){
             return this;
@@ -40,11 +35,11 @@ public class JavaImporter extends PyObject {
      *         otherwise
      */
     public PyObject find_module(String name, PyObject path) {
-        log.log(Level.FINE, "# trying {0} in package manager for path {1}",
-                new Object[] {name, path});
+        Py.writeDebug("import", "trying " + name
+                + " in packagemanager for path " + path);
         PyObject ret = PySystemState.packageManager.lookupName(name.intern());
         if (ret != null) {
-            log.log(Level.CONFIG, "import {0} # as java package", name);
+            Py.writeComment("import", "'" + name + "' as java package");
             return this;
         }
         return Py.None;
@@ -59,7 +54,6 @@ public class JavaImporter extends PyObject {
      *
      * @return a string representation of the object.
      */
-    @Override
     public String toString() {
         return this.getType().toString();
     }

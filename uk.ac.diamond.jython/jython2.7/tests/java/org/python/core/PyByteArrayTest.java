@@ -12,9 +12,6 @@ import org.python.util.PythonInterpreter;
  */
 public class PyByteArrayTest extends BaseBytesTest {
 
-    /** This program may be used to display operation time, but this is not necessary for tests. */
-    final static boolean SHOW_OPERATION_TIMES = false;
-
     /**
      * Constructor required by JUnit.
      *
@@ -966,13 +963,11 @@ public class PyByteArrayTest extends BaseBytesTest {
      * slice to replace is simple and contiguous (2-argument slice).
      */
     public void testSetsliceTime() {
-        if (SHOW_OPERATION_TIMES) {
-            int verbose = 1;
-            timeSetslice(50, 100, SMALL, 2 * SMALL, verbose);
-            timeSetslice(50, 100, MEDIUM, MEDIUM, verbose);
-            timeSetslice(500, 20, LARGE, LARGE / 5, verbose);
-            timeSetslice(1000, 4, HUGE, HUGE/5, verbose);
-        }
+        int verbose = 1;
+        timeSetslice(50, 100, SMALL, 2 * SMALL, verbose);
+        timeSetslice(50, 100, MEDIUM, MEDIUM, verbose);
+        timeSetslice(500, 20, LARGE, LARGE / 5, verbose);
+        // timeSetslice(1000, 4, HUGE, HUGE/5, verbose);
     }
 
     /**
@@ -1393,13 +1388,11 @@ public class PyByteArrayTest extends BaseBytesTest {
      * slice to replace is extended (3-argument slice).
      */
     public void testDelsliceTime3() {
-        if (SHOW_OPERATION_TIMES) {
-            int verbose = 1;
-            timeDelslice3(50, 100, SMALL, verbose);
-            timeDelslice3(50, 100, MEDIUM, verbose);
-            timeDelslice3(20, 4, LARGE, verbose);
-            timeDelslice3(10, 1, HUGE, verbose);
-        }
+        int verbose = 1;
+        timeDelslice3(50, 100, SMALL, verbose);
+        timeDelslice3(50, 100, MEDIUM, verbose);
+        timeDelslice3(20, 4, LARGE, verbose);
+        // timeDelslice3(10, 1, HUGE, verbose);
     }
 
     /**

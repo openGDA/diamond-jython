@@ -190,8 +190,8 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * an exception about that.
      *
      * @param arg primary argument from which value is taken (may be <code>null</code>)
-     * @throws PyException {@code TypeError} for non-iterable,
-     * @throws PyException {@code ValueError} if iterables do not yield byte [0..255] values.
+     * @throws PyException (TypeError) for non-iterable,
+     * @throws PyException (ValueError) if iterables do not yield byte [0..255] values.
      */
     public PyByteArray(PyObject arg) throws PyException {
         super(TYPE);
@@ -239,7 +239,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
     /**
      * Try to re-use an existing exported buffer, or return <code>null</code> if we can't.
      *
-     * @throws PyException {@code BufferError} if the the flags are incompatible with the buffer
+     * @throws PyException (BufferError) if the the flags are incompatible with the buffer
      */
     private BaseBuffer getExistingBuffer(int flags) throws PyException {
         BaseBuffer pybuf = null;
@@ -264,7 +264,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * called by the implementation of any append or insert that changes the number of bytes in the
      * array.
      *
-     * @throws PyException {@code BufferError} if there are buffer exports preventing a resize
+     * @throws PyException (BufferError) if there are buffer exports preventing a resize
      */
     protected void resizeCheck() throws PyException {
         if (export != null) {
@@ -341,9 +341,9 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      */
     @Override
     protected synchronized PyByteArray repeat(int count) {
-        Builder builder = new Builder(size * (long) count);
-        builder.repeat(this, count);
-        return getResult(builder);
+        PyByteArray ret = new PyByteArray();
+        ret.setStorage(repeatImpl(count));
+        return ret;
     }
 
     /**
@@ -390,8 +390,8 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      *
      * @param index index of the element to set.
      * @param value the value to set this element to.
-     * @throws PyException {@code AttributeError} if value cannot be converted to an integer
-     * @throws PyException {@code ValueError} if value&lt;0 or value&gt;255
+     * @throws PyException (AttributeError) if value cannot be converted to an integer
+     * @throws PyException (ValueError) if value<0 or value>255
      */
     @Override
     public synchronized void pyset(int index, PyObject value) throws PyException {
@@ -404,9 +404,9 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      *
      * @param index to insert at
      * @param element to insert (by value)
-     * @throws PyException {@code IndexError} if the index is outside the array bounds
-     * @throws PyException {@code ValueError} if element&lt;0 or element&gt;255
-     * @throws PyException {@code TypeError} if the subclass is immutable
+     * @throws PyException (IndexError) if the index is outside the array bounds
+     * @throws PyException (ValueError) if element<0 or element>255
+     * @throws PyException (TypeError) if the subclass is immutable
      */
     @Override
     public synchronized void pyinsert(int index, PyObject element) {
@@ -482,8 +482,12 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
              */
             setslice(start, stop, step, (BaseBytes)value);
 
-        } else if (setsliceFromBuffer(start, stop, step, value)) {
-            // Value supports Jython buffer API. (We're done.)
+        } else if (value instanceof BufferProtocol) {
+            /*
+             * Value supports Jython implementation of PEP 3118, and can be can be inserted without
+             * making a copy.
+             */
+            setslice(start, stop, step, (BufferProtocol)value);
 
         } else {
             /*
@@ -503,7 +507,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * @param stop one more than the position of the last element.
      * @param step the step size.
      * @param len number of zeros to insert consistent with the slice assignment
-     * @throws PyException {@code SliceSizeError} if the value size is inconsistent with an extended slice
+     * @throws PyException (SliceSizeError) if the value size is inconsistent with an extended slice
      */
     private void setslice(int start, int stop, int step, int len) throws PyException {
         if (step == 1) {
@@ -532,8 +536,8 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * @param stop one more than the position of the last element.
      * @param step the step size.
      * @param value a PyString object consistent with the slice assignment
-     * @throws PyException {@code SliceSizeError} if the value size is inconsistent with an extended slice
-     * @throws PyException {@code ValueError} if the value is a <code>PyUnicode</code>
+     * @throws PyException (SliceSizeError) if the value size is inconsistent with an extended slice
+     * @throws PyException (ValueError) if the value is a <code>PyUnicode</code>
      */
     private void setslice(int start, int stop, int step, PyString value) throws PyException {
         if (value instanceof PyUnicode) {
@@ -567,11 +571,11 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * @param stop one more than the position of the last element.
      * @param step the step size.
      * @param value an object supporting the buffer API consistent with the slice assignment
-     * @throws PyException {@code SliceSizeError} if the value size is inconsistent with an extended slice
+     * @throws PyException (SliceSizeError) if the value size is inconsistent with an extended slice
      */
-    private void setslice(int start, int stop, int step, BufferProtocol value) throws PyException, ClassCastException {
+    private void setslice(int start, int stop, int step, BufferProtocol value) throws PyException {
 
-        try (PyBuffer view = value.getBuffer(PyBUF.SIMPLE)) {
+        try (PyBuffer view = value.getBuffer(PyBUF.FULL_RO)) {
 
             int len = view.getLen();
 
@@ -595,29 +599,6 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
     }
 
     /**
-     * Sets the given range of elements according to Python slice assignment semantics from an
-     * object that <b>might</b> support the Jython Buffer API.
-     *
-     * @param start the position of the first element.
-     * @param stop one more than the position of the last element.
-     * @param step the step size.
-     * @param value an object possibly bearing the Buffer API
-     * @return <code>true</code> if the slice was set successfully, <code>false</code> otherwise
-     * @throws PyException {@code SliceSizeError} if the value size is inconsistent with an extended slice
-     */
-    private boolean setsliceFromBuffer(int start, int stop, int step, PyObject value)
-            throws PyException {
-        if (value instanceof BufferProtocol) {
-            try {
-                setslice(start, stop, step, (BufferProtocol) value);
-                return true;
-            } catch (ClassCastException e) { /* fall through to false */ }
-        }
-        return false;
-    }
-
-
-    /**
      * Sets the given range of elements according to Python slice assignment semantics from a
      * <code>bytearray</code> (or bytes).
      *
@@ -626,7 +607,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * @param stop one more than the position of the last element.
      * @param step the step size.
      * @param value a <code>bytearray</code> (or bytes) object consistent with the slice assignment
-     * @throws PyException {@code SliceSizeError} if the value size is inconsistent with an extended slice
+     * @throws PyException (SliceSizeError) if the value size is inconsistent with an extended slice
      */
     private void setslice(int start, int stop, int step, BaseBytes value) throws PyException {
 
@@ -665,8 +646,8 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * @param stop one more than the position of the last element.
      * @param step the step size.
      * @param iter iterable source of values to enter in the array
-     * @throws PyException {@code SliceSizeError} if the iterable size is inconsistent with an
-     *             extended slice
+     * @throws PyException (SliceSizeError) if the iterable size is inconsistent with an extended
+     *             slice
      */
     private void setslice(int start, int stop, int step, Iterable<? extends PyObject> iter) {
         /*
@@ -788,8 +769,8 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      *
      * @param args argument array according to Jython conventions
      * @param kwds Keywords according to Jython conventions
-     * @throws PyException {@code TypeError} for non-iterable,
-     * @throws PyException {@code ValueError} if iterables do not yield byte [0..255] values.
+     * @throws PyException (TypeError) for non-iterable,
+     * @throws PyException (ValueError) if iterables do not yield byte [0..255] values.
      */
     @ExposedNew
     @ExposedMethod(doc = BuiltinDocs.bytearray___init___doc)
@@ -831,11 +812,21 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * Support for Builder
      * ============================================================================================
      *
+     * Extend BaseBytes.Builder so that it can return a PyByteArray and give the superclass a hook
+     * for it.
      */
 
     @Override
-    protected PyByteArray getResult(Builder b) {
-        return new PyByteArray(b.getStorage(), b.getSize());
+    protected Builder getBuilder(int capacity) {
+        // Return a Builder specialised for my class
+        return new Builder(capacity) {
+
+            @Override
+            PyByteArray getResult() {
+                // Create a PyByteArray from the storage that the builder holds
+                return new PyByteArray(getStorage(), getSize());
+            }
+        };
     }
 
     /*
@@ -917,13 +908,32 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
 
     @ExposedMethod(type = MethodType.BINARY, doc = BuiltinDocs.bytearray___add___doc)
     final synchronized PyObject bytearray___add__(PyObject o) {
-        // Duplicate this buffer, but size it large enough to hold the sum
-        byte[] copy = new byte[size + o.__len__()];
-        System.arraycopy(storage, offset, copy, 0, size);
-        PyByteArray sum = new PyByteArray(copy, size);
+        PyByteArray sum = null;
 
-        // Concatenate the other buffer
-        return sum.bytearray___iadd__(o);
+        // XXX re-write using buffer API
+
+        if (o instanceof BaseBytes) {
+            BaseBytes ob = (BaseBytes)o;
+            // Quick route: allocate the right size bytearray and copy the two parts in.
+            sum = new PyByteArray(size + ob.size);
+            System.arraycopy(storage, offset, sum.storage, sum.offset, size);
+            System.arraycopy(ob.storage, ob.offset, sum.storage, sum.offset + size, ob.size);
+
+        } else if (o.getType() == PyString.TYPE) {
+            // Support bytes type, which in in Python 2.7 is an alias of str. Remove in 3.0
+            PyString os = (PyString)o;
+            // Allocate the right size bytearray and copy the two parts in.
+            sum = new PyByteArray(size + os.__len__());
+            System.arraycopy(storage, offset, sum.storage, sum.offset, size);
+            sum.setslice(size, sum.size, 1, os);
+
+        } else {
+            // Unsuitable type
+            // XXX note reversed order relative to __iadd__ may be wrong, matches Python 2.7
+            throw ConcatenationTypeError(TYPE, o.getType());
+        }
+
+        return sum;
     }
 
     /**
@@ -1007,7 +1017,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * length 1.
      *
      * @param element the item to append.
-     * @throws PyException {@code ValueError} if element&lt;0 or element&gt;255
+     * @throws PyException (ValueError) if element<0 or element>255
      */
     public void append(PyObject element) {
         bytearray_append(element);
@@ -1279,8 +1289,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      * </pre>
      *
      * @param hex specification of the bytes
-     * @throws PyException {@code ValueError} if non-hex characters, or isolated ones, are
-     *             encountered
+     * @throws PyException (ValueError) if non-hex characters, or isolated ones, are encountered
      */
     static PyByteArray fromhex(String hex) throws PyException {
         return bytearray_fromhex(TYPE, hex);
@@ -1316,9 +1325,6 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
         } else if (oType == PyString.TYPE) {
             // Will fail if somehow not 8-bit clean
             setslice(size, size, 1, (PyString)o);
-        } else if (setsliceFromBuffer(size, size, 1, o)) {
-            // No-op setsliceFromBuffer has already done the work and if it returns true then were done.
-            // setsliceFromBuffer will return false for PyUnicode where the buffer cannot be obtained.
         } else {
             // Unsuitable type
             throw ConcatenationTypeError(oType, TYPE);
@@ -1353,7 +1359,7 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
     /**
      * This type is not hashable.
      *
-     * @throws PyException {@code TypeError} as this type is not hashable.
+     * @throws PyException (TypeError) as this type is not hashable.
      */
     @Override
     public int hashCode() throws PyException {
@@ -1990,17 +1996,12 @@ public class PyByteArray extends BaseBytes implements BufferProtocol {
      */
     @Override
     public String toString() {
-        return this.asString();
-    }
-
-    @Override
-    public PyString __repr__(){
-       return bytearray___repr__();
+        return bytearray_repr();
     }
 
     @ExposedMethod(names = {"__repr__"}, doc = BuiltinDocs.bytearray___repr___doc)
-    final synchronized PyString bytearray___repr__() {
-        return new PyString(basebytes_repr("bytearray(b", ")"));
+    final synchronized String bytearray_repr() {
+        return basebytes_repr("bytearray(b", ")");
     }
 
     /**

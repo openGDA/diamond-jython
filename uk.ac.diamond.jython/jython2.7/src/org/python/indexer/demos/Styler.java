@@ -151,7 +151,7 @@ class Styler extends DefaultNodeVisitor {
             });
 
         Token tok;
-        while ((tok = lex.nextToken()).getType() != Token.EOF) {
+        while ((tok = lex.nextToken()) != Token.EOF_TOKEN) {
             switch (tok.getType()) {
                 case PythonLexer.STRING: {
                     int beg = ((CommonToken)tok).getStartIndex();

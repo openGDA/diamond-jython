@@ -1,13 +1,8 @@
 
 package org.python.modules;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
+import org.python.core.__builtin__;
+import org.python.core.imp;
 import org.python.core.Py;
 import org.python.core.PyFile;
 import org.python.core.PyList;
@@ -16,8 +11,10 @@ import org.python.core.PyObject;
 import org.python.core.PyString;
 import org.python.core.PySystemState;
 import org.python.core.PyTuple;
-import org.python.core.__builtin__;
-import org.python.core.imp;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 
 /*
  * A bogus implementation of the CPython builtin module "imp".
@@ -39,8 +36,6 @@ public class _imp {
     public static final int C_BUILTIN = 6;
     public static final int PY_FROZEN = 7;
     public static final int IMP_HOOK = 9;
-
-    private static Logger logger = Logger.getLogger("org.python.import");
 
     private static class ModuleInfo {
         PyObject file;
@@ -100,7 +95,7 @@ public class _imp {
                 return new ModuleInfo(Py.None, new File(displayDirName, name).getPath(),
                                       "", "", PKG_DIRECTORY);
             } else {
-                logger.log(Level.FINE, "# trying directory {0}", dir.getPath());
+                Py.writeDebug("import", "trying source " + dir.getPath());
                 sourceName = name + ".py";
                 compiledName = imp.makeCompiledFilename(sourceName);
                 sourceFile = new File(directoryName, sourceName);
@@ -110,7 +105,7 @@ public class _imp {
 
         if (sourceFile.isFile() && caseok(sourceFile, sourceName)) {
             if (!preferSource && compiledFile.isFile() && caseok(compiledFile, compiledName)) {
-                logger.log(Level.FINE, "# trying precompiled {0}", compiledFile.getPath());
+                Py.writeDebug("import", "trying precompiled " + compiledFile.getPath());
                 long pyTime = sourceFile.lastModified();
                 long classTime = compiledFile.lastModified();
                 if (classTime >= pyTime) {
@@ -125,7 +120,7 @@ public class _imp {
         }
 
         // If no source, try loading precompiled
-        logger.log(Level.FINE, "# trying precompiled {0}", compiledFile.getPath());
+        Py.writeDebug("import", "trying " + compiledFile.getPath());
         if (compiledFile.isFile() && caseok(compiledFile, compiledName)) {
             return new ModuleInfo(newFile(compiledFile),
                     new File(displayDirName, compiledName).getPath(),

@@ -1,20 +1,17 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python2.7 -E
 # -*- coding: utf-8 -*-
 
-# Launch script for Jython. It may be run directly (note the shebang line), but
-# importantly it supplies python.exe, the launcher we use on Windows.
-#
-# Each time this file changes, we must regenerate an executable with
-# PyInstaller, using the command:
-#
-#    pyinstaller --onefile jython.py
-#
-# This is best done in a virtual environment (more about this in the Jython
-# Developers' Guide).
+# Launch script for Jython. It may be wrapped as an executable with
+# tools like PyInstaller, creating jython.exe, or run directly. The
+# installer will make this the default launcher under the name
+# bin/jython if CPython 2.7 is available with the above shebang
+# invocation.
 
 import glob
+import inspect
 import os
 import os.path
+import pipes
 import shlex
 import subprocess
 import sys
@@ -46,29 +43,12 @@ ENCODING = sys.getfilesystemencoding() or "utf-8"
 def get_env(envvar, default=None):
     """ Return the named environment variable, decoded to Unicode."""
     v = os.environ.get(envvar, default)
-    # Result may be bytes but we want unicode for the command
+    # Tolerate default given as bytes, as we're bound to forget sometimes
     if isinstance(v, bytes):
         v = v.decode(ENCODING)
     # Remove quotes sometimes necessary around the value
     if v is not None and v.startswith('"') and v.endswith('"'):
         v = v[1:-1]
-    return v
-
-def get_env_mem(envvar, default):
-    """ Return the named memory environment variable, decoded to Unicode.
-        The default should begin with -Xmx or -Xss as in the java command,
-        but this part will be added to the environmental value if missing.
-    """
-    # Tolerate default given as bytes, as we're bound to forget sometimes
-    if isinstance(default, bytes):
-        default = default.decode(ENCODING)
-    v = os.environ.get(envvar, default)
-    # Result may be bytes but we want unicode for the command
-    if isinstance(v, bytes):
-        v = v.decode(ENCODING)
-    # Accept either a form like 16m or one like -Xmx16m
-    if not v.startswith(u"-X"):
-        v = default[:4] + v
     return v
 
 def encode_list(args, encoding=ENCODING):
@@ -102,7 +82,6 @@ def parse_launcher_args(args):
     parsed.profile = False # --profile flag given
     parsed.properties = OrderedDict() # properties to give the JVM
     parsed.java = [] # any other arguments to give the JVM
-    unparsed = list()
 
     it = iter(args)
     next(it)  # ignore sys.argv[0]
@@ -142,17 +121,13 @@ def parse_launcher_args(args):
         elif arg in (u"--boot", u"--jdb", u"--profile"):
             setattr(parsed, arg[2:], True)
             i += 1
-        elif len(arg) >= 2 and arg[0] == u'-' and arg[1] in u"BEisSuvV3":
-            unparsed.append(arg)
-            i += 1
         elif arg == u"--":
             i += 1
             break
         else:
             break
 
-    unparsed.extend(args[i:])
-    return parsed, unparsed
+    return parsed, args[i:]
 
 
 class JythonCommand(object):
@@ -217,14 +192,14 @@ class JythonCommand(object):
             # Frozen. Let it go with the executable path.
             bytes_path = sys.executable
         else:
-            # Not frozen. Use the __file__ of this module.
-            bytes_path = __file__
+            # Not frozen. Any object defined in this file will do. 
+            bytes_path = inspect.getfile(JythonCommand)
         # Python 2 thinks in bytes. Carefully normalise in Unicode.
         path = os.path.realpath(bytes_path.decode(ENCODING))
         try:
-            # If shorter, make this relative to the CWD.
-            relpath = os.path.relpath(path, os.getcwdu())
-            if len(relpath) < len(path): path = relpath
+            # If possible, make this relative to the CWD.
+            # This helps manage multi-byte names in installation location.
+            path = os.path.relpath(path, os.getcwdu())
         except ValueError:
             # Many reasons why this might be impossible: use an absolute path.
             path = os.path.abspath(path)
@@ -288,14 +263,14 @@ setting JYTHON_HOME.""".format(self.jython_home))
         if hasattr(self.args, "mem"):
             return self.args.mem
         else:
-            return get_env_mem("JAVA_MEM", "-Xmx512m")
+            return get_env("JAVA_MEM", "-Xmx512m")
 
     @property
     def java_stack(self):
         if hasattr(self.args, "stack"):
             return self.args.stack
         else:
-            return get_env_mem("JAVA_STACK", "-Xss2560k")
+            return os.environ.get("JAVA_STACK", "-Xss2560k")
 
     @property
     def java_opts(self):
@@ -406,9 +381,9 @@ Jython launcher-specific options:
 --profile: run with the Java Interactive Profiler (http://jiprof.sf.net)
 --       : pass remaining arguments through to Jython
 Jython launcher environment variables:
-JAVA_MEM   : Java memory size as a java option e.g. -Xmx600m or just 600m
-JAVA_STACK : Java stack size as a java option e.g. -Xss5120k or just 5120k
+JAVA_MEM   : Java memory (sets via -Xmx)
 JAVA_OPTS  : options to pass directly to Java
+JAVA_STACK : Java stack size (sets via -Xss)
 JAVA_HOME  : Java installation directory
 JYTHON_HOME: Jython installation directory
 JYTHON_OPTS: default command line arguments
@@ -497,33 +472,6 @@ def get_env_opts(envvar):
         opts = shlex.split(opts)
     return decode_list(opts)
 
-def maybe_quote(s):
-    """ Enclose the string argument in single quotes if it looks like it needs it.
-        Spaces and quotes will trigger; single quotes in the argument are escaped.
-        This is only used to compose the --print output so need only satisfy shlex.
-    """
-    NEED_QUOTE = u" \t\"\\'"
-    clean = True
-    for c in s:
-        if c in NEED_QUOTE:
-            clean = False
-            break
-    if clean: return s
-    # Something needs quoting or escaping.
-    QUOTE = u"'"
-    ESC = u"\\"
-    arg = [QUOTE]
-    for c in s:
-        if c == QUOTE:
-            arg.append(QUOTE)
-            arg.append(ESC)
-            arg.append(QUOTE)
-        elif c == ESC:
-            arg.append(ESC)
-        arg.append(c)
-    arg.append(QUOTE)
-    return ''.join(arg)
-
 def main(sys_args):
     # The entire program must work in Unicode
     sys_args = decode_list(sys_args)
@@ -557,44 +505,30 @@ def main(sys_args):
             # Normally used for a byte strings but Python is tolerant :)
             command_line = subprocess.list2cmdline(command)
         else:
-            # Transform any element that seems to need quotes
-            command = map(maybe_quote, command)
-            # Now concatenate with spaces
+            # Just concatenate with spaces
             command_line = u" ".join(command)
         # It is possible the Unicode cannot be encoded for the console
         enc = sys.stdout.encoding or 'ascii'
-        sys.stdout.write(command_line.encode(enc, 'replace') + "\n")
+        sys.stdout.write(command_line.encode(enc, 'replace'))
     else:
-        try:
-            if not (is_windows or not hasattr(os, "execvp") or args.help or 
-                    jython_command.uname == u"cygwin"):
-                # Replace this process with the java process.
-                #
-                # NB such replacements actually do not work under Windows,
-                # but if tried, they also fail very badly by hanging.
-                # So don't even try!
-                command = encode_list(command)
-                os.execvp(command[0], command[1:])
-            else:
-                result = 1
-                try:
-                    result = subprocess.call(encode_list(command))
-                    if args.help:
-                        print_help()
-                except KeyboardInterrupt:
-                    pass
-                sys.exit(result)
-        except OSError as e:
-            print >> sys.stderr, "Failed to launch Jython using command:",\
-                    command[0], "...\n", \
-                    "    Use the --print option to see the command in full."
-            if jython_command.java_home:
-                print >> sys.stderr, "    Launcher used JAVA_HOME =",\
-                    jython_command.java_home
-            else:
-                print >> sys.stderr, "    Check PATH for java/jdb command."
-            print >> sys.stderr, e
-            sys.exit(1)
+        if not (is_windows or not hasattr(os, "execvp") or args.help or 
+                jython_command.uname == u"cygwin"):
+            # Replace this process with the java process.
+            #
+            # NB such replacements actually do not work under Windows,
+            # but if tried, they also fail very badly by hanging.
+            # So don't even try!
+            command = encode_list(command)
+            os.execvp(command[0], command[1:])
+        else:
+            result = 1
+            try:
+                result = subprocess.call(encode_list(command))
+                if args.help:
+                    print_help()
+            except KeyboardInterrupt:
+                pass
+            sys.exit(result)
 
 
 if __name__ == "__main__":

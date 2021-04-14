@@ -6,8 +6,7 @@ package org.python.indexer;
 
 /**
  * Signals that indexing is being aborted.
- *
- * @see Indexer#enableAggressiveAssertions(boolean)
+ * @see {Indexer#enableAggressiveAssertions}
  */
 public class IndexingException extends RuntimeException {
 

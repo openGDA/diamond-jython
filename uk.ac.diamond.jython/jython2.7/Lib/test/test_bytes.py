@@ -217,9 +217,7 @@ class BaseBytesTest(unittest.TestCase):
         self.assertEqual(b1 + bytes(b"def"), b"abcdef")
         self.assertEqual(bytes(b"def") + b1, b"defabc")
         self.assertRaises(TypeError, lambda: b1 + u"def")
-        # Jython treats unicode + bytearray the same way as unicode + str
-        #self.assertRaises(TypeError, lambda: u"abc" + b2)
-        self.assertEqual(u"def" + b1, u"defabc") # OK in Jython
+        self.assertRaises(TypeError, lambda: u"abc" + b2)
 
     def test_repeat(self):
         for b in b"abc", self.type2test(b"abc"):

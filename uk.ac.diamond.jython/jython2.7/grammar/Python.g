@@ -239,15 +239,12 @@ private ErrorHandler errorHandler;
     }
 
     /**
-     * The text of this is mostly taken directly from ANTLR's Lexer.java,
-     * and ought to track changes there each time we get a new version,
-     * ... if there are any after 3.5.2. Also in PythonPartial.g.
+     *  Taken directly from antlr's Lexer.java -- needs to be re-integrated every time
+     *  we upgrade from Antlr (need to consider a Lexer subclass, though the issue would
+     *  remain).
      */
-    @Override
     public Token nextToken() {
-        // -- begin Jython addition
         startPos = getCharPositionInLine();
-        // -- end Jython addition
         while (true) {
             state.token = null;
             state.channel = Token.DEFAULT_CHANNEL;
@@ -256,12 +253,10 @@ private ErrorHandler errorHandler;
             state.tokenStartLine = input.getLine();
             state.text = null;
             if ( input.LA(1)==CharStream.EOF ) {
-                // -- begin Jython addition
                 if (implicitLineJoiningLevel > 0) {
                     eofWhileNested = true;
                 }
-                // -- end Jython addition
-                return getEOFToken();
+                return Token.EOF_TOKEN;
             }
             try {
                 mTokens();
@@ -272,30 +267,21 @@ private ErrorHandler errorHandler;
                     continue;
                 }
                 return state.token;
-                // -- begin Jython addition
             } catch (NoViableAltException nva) {
                 reportError(nva);
                 errorHandler.recover(this, nva); // throw out current char and try again
             } catch (FailedPredicateException fp) {
-                // Added this for failed STRINGPART -- the FailedPredicateException
-                // hides a NoViableAltException. This should be the only
-                // FailedPredicateException that gets thrown by the lexer.
+                //XXX: added this for failed STRINGPART -- the FailedPredicateException
+                //     hides a NoViableAltException.  This should be the only
+                //     FailedPredicateException that gets thrown by the lexer.
                 reportError(fp);
                 errorHandler.recover(this, fp); // throw out current char and try again
-                // -- end Jython addition
-            } catch (MismatchedRangeException re) {
-                reportError(re);
-                // matchRange() routine has already called recover()
-            } catch (MismatchedTokenException re) {
-                reportError(re);
-                // match() routine has already called recover()
             } catch (RecognitionException re) {
                 reportError(re);
-                recover(re); // throw out current char and try again
+                // match() routine has already called recover()
             }
         }
     }
-
     @Override
     public void displayRecognitionError(String[] tokenNames, RecognitionException e) {
         //Do nothing. We will handle error display elsewhere.
@@ -1009,9 +995,10 @@ import_from
 //import_as_names: import_as_name (',' import_as_name)* [',']
 import_as_names
     returns [List<alias> atypes]
-    @init{$atypes = new ArrayList<alias>();}
-    : n=import_as_name {$atypes.add($n.atype);}
-        (COMMA! n=import_as_name {$atypes.add($n.atype);})*
+    : n+=import_as_name (COMMA! n+=import_as_name)*
+    {
+        $atypes = $n;
+    }
     ;
 
 //import_as_name: NAME [('as' | NAME) NAME]
@@ -1042,31 +1029,32 @@ dotted_as_name
 //dotted_as_names: dotted_as_name (',' dotted_as_name)*
 dotted_as_names
     returns [List<alias> atypes]
-    @init{$atypes = new ArrayList<alias>();}
-    : d=dotted_as_name {$atypes.add($d.atype);}
-        (COMMA! d=dotted_as_name {$atypes.add($d.atype);})*
+    : d+=dotted_as_name (COMMA! d+=dotted_as_name)*
+    {
+        $atypes = $d;
+    }
     ;
 
 //dotted_name: NAME ('.' NAME)*
 dotted_name
     returns [List<Name> names]
-    @init{List<PythonTree> dnList = new ArrayList<>();}
-    : NAME (DOT dn=attr {dnList.add($dn.tree);})*
-        {$names = actions.makeDottedName($NAME, dnList);}
+    : NAME (DOT dn+=attr)*
+    {
+        $names = actions.makeDottedName($NAME, $dn);
+    }
     ;
 
 //global_stmt: 'global' NAME (',' NAME)*
 global_stmt
 @init {
     stmt stype = null;
-    List<Token> names = new ArrayList<>();
 }
 @after {
    $global_stmt.tree = stype;
 }
-    : GLOBAL n=NAME {names.add($n);} (COMMA n=NAME {names.add($n);})*
+    : GLOBAL n+=NAME (COMMA n+=NAME)*
       {
-          stype = new Global($GLOBAL, actions.makeNames(names), actions.makeNameNodes(names));
+          stype = new Global($GLOBAL, actions.makeNames($n), actions.makeNameNodes($n));
       }
     ;
 
@@ -1197,17 +1185,14 @@ for_stmt
 try_stmt
 @init {
     stmt stype = null;
-    List<excepthandler> exceptClauses = new ArrayList<>();
 }
 @after {
    $try_stmt.tree = stype;
 }
     : TRY COLON trysuite=suite[!$suite.isEmpty() && $suite::continueIllegal]
-      ( (e=except_clause {exceptClauses.add((excepthandler)$e.tree);})+ 
-            (ORELSE COLON elsesuite=suite[!$suite.isEmpty() && $suite::continueIllegal])?
-            (FINALLY COLON finalsuite=suite[true])?
+      ( e+=except_clause+ (ORELSE COLON elsesuite=suite[!$suite.isEmpty() && $suite::continueIllegal])? (FINALLY COLON finalsuite=suite[true])?
         {
-            stype = actions.makeTryExcept($TRY, $trysuite.stypes, exceptClauses, $elsesuite.stypes, $finalsuite.stypes);
+            stype = actions.makeTryExcept($TRY, $trysuite.stypes, $e, $elsesuite.stypes, $finalsuite.stypes);
         }
       | FINALLY COLON finalsuite=suite[true]
         {
@@ -1220,15 +1205,14 @@ try_stmt
 with_stmt
 @init {
     stmt stype = null;
-    List<With> withList = new ArrayList<>();
 }
 @after {
    $with_stmt.tree = stype;
 }
-    : WITH w=with_item {withList.add((With)$w.tree);}
-        (options {greedy=true;}:COMMA w=with_item {withList.add((With)$w.tree);})*
-        COLON suite[false]
-        {stype = actions.makeWith($WITH, withList, $suite.stypes);}
+    : WITH w+=with_item (options {greedy=true;}:COMMA w+=with_item)* COLON suite[false]
+      {
+          stype = actions.makeWith($WITH, $w, $suite.stypes);
+      }
     ;
 
 //with_item: test ['as' expr]
@@ -1268,7 +1252,7 @@ except_clause
 
 //suite: simple_stmt | NEWLINE INDENT stmt+ DEDENT
 suite
-    [boolean fromFinally] returns [List<stmt> stypes]
+    [boolean fromFinally] returns [List stypes]
 scope {
     boolean continueIllegal;
 }
@@ -1770,9 +1754,9 @@ atom
         }
        )
        RCURLY
-     | lb=BACKQUOTE testlist1[expr_contextType.Load] rb=BACKQUOTE
+     | lb=BACKQUOTE testlist[expr_contextType.Load] rb=BACKQUOTE
        {
-           etype = new Repr($lb, actions.castExpr($testlist1.tree));
+           etype = new Repr($lb, actions.castExpr($testlist.tree));
        }
      | name_or_print
        {
@@ -1982,11 +1966,10 @@ exprlist
 //Needed as an exprlist that does not produce tuples for del_stmt.
 del_list
     returns [List<expr> etypes]
-    @init{List<PythonTree> exprList = new ArrayList<>();}
-    : e=expr[expr_contextType.Del] {exprList.add($e.tree);}
-        (options {k=2;}: COMMA e=expr[expr_contextType.Del]
-            {exprList.add($e.tree);})* (COMMA)?
-        {$etypes = actions.makeDeleteList(exprList);}
+    : e+=expr[expr_contextType.Del] (options {k=2;}: COMMA e+=expr[expr_contextType.Del])* (COMMA)?
+      {
+          $etypes = actions.makeDeleteList($e);
+      }
     ;
 
 //testlist: test (',' test)* [',']
@@ -2206,26 +2189,6 @@ comp_if[List gens, List ifs]
       }
     ;
 
-// Variant of testlist used between BACKQUOTEs (the deprecated back-tick repr()) only
-//testlist1: test (',' test)*
-testlist1[expr_contextType ctype]
-@init {
-    expr etype = null;
-}
-@after {
-    if (etype != null) {
-        $testlist1.tree = etype;
-    }
-}
-    : t+=test[ctype]
-      (
-        COMMA t+=test[ctype]
-        {
-            etype = new Tuple($testlist1.start, actions.castExprs($t), ctype);
-        }
-      )*
-    ;
-
 //yield_expr: 'yield' [testlist]
 yield_expr
     returns [expr etype]
@@ -2420,14 +2383,16 @@ STRING
         }
     ;
 
+/** the two '"'? cause a warning -- is there a way to avoid that? */
 fragment
 TRIQUOTE
-    : ('"' '"'?)? (ESC|~('\\'|'"'))+
+    : '"'? '"'? (ESC|~('\\'|'"'))+
     ;
 
+/** the two '\''? cause a warning -- is there a way to avoid that? */
 fragment
 TRIAPOS
-    : ('\'' '\''?)? (ESC|~('\\'|'\''))+
+    : '\''? '\''? (ESC|~('\\'|'\''))+
     ;
 
 fragment

@@ -23,7 +23,7 @@ public class OverridableNewExposerTest extends InterpTestCase implements PyTypes
                                 Type.getMethodDescriptor(VOID, new Type[] {APYOBJ, ASTRING}),
                                 new String[] {});
         Class descriptor = ne.load(new BytecodeLoader.Loader());
-        instance = (PyNewWrapper)descriptor.getDeclaredConstructor().newInstance();
+        instance = (PyNewWrapper)descriptor.newInstance();
         type = PyType.fromClass(Instantiable.class);
         instance.setWrappedType(type);
     }

@@ -1,7 +1,6 @@
 package org.python.util;
 
 import static org.junit.Assert.*;
-import static org.python.core.RegistryKey.PYTHON_CONSOLE;
 
 import org.junit.Test;
 import org.python.core.Console;
@@ -28,6 +27,7 @@ import org.python.core.Py;
  */
 public class jythonTestPlain {
 
+    private static final String PYTHON_CONSOLE = "python.console";
     private static String[] commands = {"-c", "import sys; print type(sys._jy_console)"};
 
     /**
@@ -39,7 +39,7 @@ public class jythonTestPlain {
     public void testFallbackConsole() {
         System.out.println("testFallbackConsole");
         System.getProperties().setProperty(PYTHON_CONSOLE, "org.python.util.InteractiveConsole");
-        jython.main(commands);
+        jython.run(commands);
         Console console = Py.getConsole();
         assertEquals(PlainConsole.class, console.getClass());
     }
@@ -55,7 +55,7 @@ public class jythonTestPlain {
         PythonInterpreter interp = new PythonInterpreter();
         // Now replace it
         Py.installConsole(new JLineConsole(null));
-        jython.main(commands);
+        jython.run(commands);
         Console console = Py.getConsole();
         assertEquals(JLineConsole.class, console.getClass());
         interp.cleanup();

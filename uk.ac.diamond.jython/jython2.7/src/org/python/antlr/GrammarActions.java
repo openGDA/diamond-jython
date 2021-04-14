@@ -129,10 +129,10 @@ public class GrammarActions {
         return result;
     }
 
-    List<String> makeNames(List<Token> names) {
+    List<String> makeNames(List names) {
         List<String> s = new ArrayList<String>();
-        for(Token name : names) {
-            s.add(name.getText());
+        for(int i=0;i<names.size();i++) {
+            s.add(((Token)names.get(i)).getText());
         }
         return s;
     }
@@ -146,8 +146,8 @@ public class GrammarActions {
 
     List<Name> makeNameNodes(List<Token> names) {
         List<Name> s = new ArrayList<Name>();
-        for(Token name : names) {
-            s.add(makeNameNode(name));
+        for (int i=0; i<names.size(); i++) {
+            s.add(makeNameNode(names.get(i)));
         }
         return s;
     }

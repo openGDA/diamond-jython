@@ -432,7 +432,6 @@ elif jython:
     import java.io.FileNotFoundException
     import java.lang.IllegalArgumentException
     import java.lang.IllegalThreadStateException
-    import java.lang.Process
     import java.lang.ProcessBuilder
     import java.lang.System
     import java.lang.Thread
@@ -490,38 +489,6 @@ def _eintr_retry_call(func, *args):
             if e.errno == errno.EINTR:
                 continue
             raise
-
-
-# XXX This function is only used by multiprocessing and the test suite,
-# but it's here so that it can be imported when Python is compiled without
-# threads.
-
-def _args_from_interpreter_flags():
-    """Return a list of command-line arguments reproducing the current
-    settings in sys.flags and sys.warnoptions."""
-    flag_opt_map = {
-        'debug': 'd',
-        # 'inspect': 'i',
-        # 'interactive': 'i',
-        'optimize': 'O',
-        'dont_write_bytecode': 'B',
-        'no_user_site': 's',
-        'no_site': 'S',
-        'ignore_environment': 'E',
-        'verbose': 'v',
-        'bytes_warning': 'b',
-        'py3k_warning': '3',
-    }
-    args = []
-    for flag, opt in flag_opt_map.items():
-        v = getattr(sys.flags, flag)
-        if v > 0:
-            args.append('-' + opt * v)
-    if getattr(sys.flags, 'hash_randomization') != 0:
-        args.append('-R')
-    for opt in sys.warnoptions:
-        args.append('-W' + opt)
-    return args
 
 
 def call(*popenargs, **kwargs):
@@ -1418,12 +1385,7 @@ class Popen(object):
             else:
                 return field
 
-        if hasattr(java.lang.Process, "pid"): # Java 9 onwards
-
-            def _get_pid(self, pid_field=None):
-                return self._process.pid()
-
-        elif os._name not in _win_oses:
+        if os._name not in _win_oses:
 
             def _get_pid(self, pid_field='pid'):
                 field = self._get_private_field(self._process, pid_field)

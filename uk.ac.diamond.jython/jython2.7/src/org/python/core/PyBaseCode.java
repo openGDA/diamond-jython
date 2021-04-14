@@ -4,6 +4,7 @@
  */
 package org.python.core;
 
+import org.python.modules._systemrestart;
 import com.google.common.base.CharMatcher;
 
 public abstract class PyBaseCode extends PyCode {
@@ -102,16 +103,21 @@ public abstract class PyBaseCode extends PyCode {
         ts.exception = previous_exception;
 
         ts.frame = ts.frame.f_back;
+
+        // Check for interruption, which is used for restarting the interpreter
+        // on Jython
+        if (ts.getSystemState()._systemRestart && Thread.currentThread().isInterrupted()) {
+            throw new PyException(_systemrestart.SystemRestart);
+        }
         return ret;
     }
 
     public PyObject call(ThreadState state, PyObject globals, PyObject[] defaults,
                          PyObject closure)
     {
-        if (co_argcount != 0 || varargs || varkwargs) {
+        if (co_argcount != 0 || varargs || varkwargs)
             return call(state, Py.EmptyObjects, Py.NoKeywords, globals, defaults,
                         closure);
-        }
         PyFrame frame = new PyFrame(this, globals);
         if (co_flags.isFlagSet(CodeFlag.CO_GENERATOR)) {
             return new PyGenerator(frame, closure);
@@ -122,10 +128,9 @@ public abstract class PyBaseCode extends PyCode {
     public PyObject call(ThreadState state, PyObject arg1, PyObject globals, PyObject[] defaults,
                          PyObject closure)
     {
-        if (co_argcount != 1 || varargs || varkwargs) {
+        if (co_argcount != 1 || varargs || varkwargs)
             return call(state, new PyObject[] {arg1},
                         Py.NoKeywords, globals, defaults, closure);
-        }
         PyFrame frame = new PyFrame(this, globals);
         frame.f_fastlocals[0] = arg1;
         if (co_flags.isFlagSet(CodeFlag.CO_GENERATOR)) {
@@ -137,10 +142,9 @@ public abstract class PyBaseCode extends PyCode {
     public PyObject call(ThreadState state, PyObject arg1, PyObject arg2, PyObject globals,
                          PyObject[] defaults, PyObject closure)
     {
-        if (co_argcount != 2 || varargs || varkwargs) {
+        if (co_argcount != 2 || varargs || varkwargs)
             return call(state, new PyObject[] {arg1, arg2},
                         Py.NoKeywords, globals, defaults, closure);
-        }
         PyFrame frame = new PyFrame(this, globals);
         frame.f_fastlocals[0] = arg1;
         frame.f_fastlocals[1] = arg2;
@@ -154,10 +158,9 @@ public abstract class PyBaseCode extends PyCode {
                          PyObject globals, PyObject[] defaults,
                          PyObject closure)
     {
-        if (co_argcount != 3 || varargs || varkwargs) {
+        if (co_argcount != 3 || varargs || varkwargs)
             return call(state, new PyObject[] {arg1, arg2, arg3},
                         Py.NoKeywords, globals, defaults, closure);
-        }
         PyFrame frame = new PyFrame(this, globals);
         frame.f_fastlocals[0] = arg1;
         frame.f_fastlocals[1] = arg2;
@@ -172,10 +175,9 @@ public abstract class PyBaseCode extends PyCode {
     public PyObject call(ThreadState state, PyObject arg1, PyObject arg2,
             PyObject arg3, PyObject arg4, PyObject globals,
             PyObject[] defaults, PyObject closure) {
-        if (co_argcount != 4 || varargs || varkwargs) {
+        if (co_argcount != 4 || varargs || varkwargs)
             return call(state, new PyObject[]{arg1, arg2, arg3, arg4},
                         Py.NoKeywords, globals, defaults, closure);
-        }
         PyFrame frame = new PyFrame(this, globals);
         frame.f_fastlocals[0] = arg1;
         frame.f_fastlocals[1] = arg2;
